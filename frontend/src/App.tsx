@@ -29,16 +29,9 @@ function App() {
   const [activeTickers, setActiveTickers] = useState<string[]>([]);
   const [selectedSymbol, setSelectedSymbol] = useState('');
   const [hoveredDate, setHoveredDate] = useState<string | null>(null);
-  const [hoveredOhlc, setHoveredOhlc] = useState<{
-    date: string;
-    open: number;
-    high: number;
-    low: number;
-    close: number;
-    change: number;
-  } | null>(null);
   const [selectedRange, setSelectedRange] = useState<RangeSelection | null>(null);
   const [rangeQuestion, setRangeQuestion] = useState<string | null>(null);
+  const [predView, setPredView] = useState<'prediction' | 'ask'>('prediction');
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [selectedArticle, setSelectedArticle] = useState<ArticleSelection | null>(null);
 
@@ -109,12 +102,10 @@ function App() {
   }, [selectedRange]);
 
   const handleHover = useCallback(
-    (date: string | null, ohlc?: { date: string; open: number; high: number; low: number; close: number; change: number }) => {
-      // Don't update hovered date when locked
+    (date: string | null) => {
       if (!lockedArticle) {
         setHoveredDate(date);
       }
-      setHoveredOhlc(ohlc || null);
     },
     [lockedArticle]
   );
@@ -122,6 +113,7 @@ function App() {
   const handleRangeSelect = useCallback((range: RangeSelection | null) => {
     setSelectedRange(range);
     setRangeQuestion(null);
+    setPredView(range ? 'ask' : 'prediction');
     if (range) {
       setSelectedDay(null);
       setSelectedArticle(null);
@@ -174,9 +166,9 @@ function App() {
   function handleSelectSymbol(symbol: string) {
     setSelectedSymbol(symbol);
     setHoveredDate(null);
-    setHoveredOhlc(null);
     setSelectedRange(null);
     setRangeQuestion(null);
+    setPredView('prediction');
     setSelectedDay(null);
     setSelectedArticle(null);
     setLockedArticle(null);
@@ -257,50 +249,49 @@ function App() {
     <div className="app">
       <header className="app-header">
         <div className="header-gradient-line" />
-        <div className="header-content">
-          <div className="header-brand">
-            <svg className="brand-logo" width="28" height="28" viewBox="0 0 28 28" fill="none">
-              <rect width="28" height="28" rx="6" fill="url(#logo-grad)" />
-              <path d="M6 18L10 12L14 15L18 8L22 11" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-              <defs>
-                <linearGradient id="logo-grad" x1="0" y1="0" x2="28" y2="28">
-                  <stop stopColor="#667eea" />
-                  <stop offset="1" stopColor="#00e5ff" />
-                </linearGradient>
-              </defs>
-            </svg>
-            <span className="brand-text">CatalystTracker</span>
+        <div className="header-content header-content-minimal">
+          <div className="header-left">
+            <StockSelector
+              activeTickers={activeTickers}
+              selectedSymbol={selectedSymbol}
+              onSelect={handleSelectSymbol}
+              onAdd={handleAddTicker}
+              watchlist={watchlist}
+              onToggleWatchlist={toggleWatchlist}
+            />
+            {selectedRange ? (
+              <div className="header-range-pill">
+                <span className="header-range-label">Range</span>
+                <span className="header-range-dates">{selectedRange.startDate} ~ {selectedRange.endDate}</span>
+                <span className={`range-change ${(selectedRange.priceChange ?? 0) >= 0 ? 'up' : 'down'}`}>
+                  {(selectedRange.priceChange ?? 0) >= 0 ? '+' : ''}
+                  {(selectedRange.priceChange ?? 0).toFixed(2)}%
+                </span>
+              </div>
+            ) : null}
           </div>
-          <StockSelector
-            activeTickers={activeTickers}
-            selectedSymbol={selectedSymbol}
-            onSelect={handleSelectSymbol}
-            onAdd={handleAddTicker}
-            watchlist={watchlist}
-            onToggleWatchlist={toggleWatchlist}
-          />
-          {selectedRange ? (
-            <div className="header-ohlc">
-              <span className="ohlc-date">{selectedRange.startDate} ~ {selectedRange.endDate}</span>
-              <span className="range-badge">Range Selected</span>
+          <div className="header-right">
+            <div className="header-mode-switch">
+              <button className={`header-mode-btn ${predView === 'prediction' ? 'active' : ''}`} onClick={() => setPredView('prediction')}>
+                Prediction
+              </button>
+              <button className={`header-mode-btn ${predView === 'ask' ? 'active' : ''}`} onClick={() => selectedRange && setPredView('ask')} disabled={!selectedRange}>
+                AI Question
+              </button>
             </div>
-          ) : hoveredOhlc ? (
-            <div className="header-ohlc">
-              <span className="ohlc-date">{hoveredOhlc.date}</span>
-              <span className="ohlc-label">O</span>
-              <span className="ohlc-val">${hoveredOhlc.open.toFixed(2)}</span>
-              <span className="ohlc-label">H</span>
-              <span className="ohlc-val">${hoveredOhlc.high.toFixed(2)}</span>
-              <span className="ohlc-label">L</span>
-              <span className="ohlc-val">${hoveredOhlc.low.toFixed(2)}</span>
-              <span className="ohlc-label">C</span>
-              <span className="ohlc-val">${hoveredOhlc.close.toFixed(2)}</span>
-              <span className={`ohlc-change ${hoveredOhlc.change >= 0 ? 'up' : 'down'}`}>
-                {hoveredOhlc.change >= 0 ? '+' : ''}
-                {hoveredOhlc.change.toFixed(2)}%
-              </span>
-            </div>
-          ) : null}
+            {selectedRange && (
+              <button
+                className="header-exit-btn"
+                onClick={() => {
+                  setSelectedRange(null);
+                  setRangeQuestion(null);
+                  setPredView('prediction');
+                }}
+              >
+                Exit
+              </button>
+            )}
+          </div>
         </div>
       </header>
 
@@ -333,7 +324,43 @@ function App() {
         </div>
         {selectedSymbol && (
           <div className="prediction-area">
-            <PredictionPanel symbol={selectedSymbol} />
+            {predView === 'ask' && selectedRange ? (
+              rangeQuestion ? (
+                <RangeAnalysisPanel
+                  symbol={selectedSymbol}
+                  startDate={selectedRange.startDate}
+                  endDate={selectedRange.endDate}
+                  question={rangeQuestion}
+                  onClear={() => {
+                    setSelectedRange(null);
+                    setRangeQuestion(null);
+                    setPredView('prediction');
+                  }}
+                />
+              ) : (
+                <div className="pred-ask-panel">
+                  <div className="pred-ask-header">
+                    <div>
+                      <div className="pred-ask-title">Ask AI about selected range</div>
+                      <div className="pred-ask-meta pred-ask-meta-mono">{selectedRange.startDate} ~ {selectedRange.endDate}</div>
+                    </div>
+                    <span className={`range-change ${(selectedRange.priceChange ?? 0) >= 0 ? 'up' : 'down'}`}>
+                      {(selectedRange.priceChange ?? 0) >= 0 ? '+' : ''}
+                      {(selectedRange.priceChange ?? 0).toFixed(2)}%
+                    </span>
+                  </div>
+                  <div className="pred-ask-presets">
+                    {['What\'s driving the price movement?', 'Summarize key news in this period', 'What are the bull/bear factors?'].map((q) => (
+                      <button key={q} className="pred-ask-preset" onClick={() => handleRangeAsk(q)}>
+                        {q}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )
+            ) : (
+              <PredictionPanel symbol={selectedSymbol} />
+            )}
           </div>
         )}
         <div className="news-area">

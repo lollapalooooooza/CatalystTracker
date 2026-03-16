@@ -91,6 +91,69 @@ button:active:not(:disabled) {
   white-space: nowrap;
 }
 
+.header-range-pill {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 6px 12px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 999px;
+  background: rgba(255,255,255,0.04);
+  font-family: var(--font-mono);
+}
+
+.header-range-label {
+  font-size: 11px;
+  color: rgba(154, 163, 178, 0.68);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.header-range-dates {
+  font-size: 12px;
+  color: rgba(232,236,242,0.9);
+  white-space: nowrap;
+}
+
+.header-mode-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 999px;
+  background: rgba(255,255,255,0.035);
+}
+
+.header-mode-btn,
+.header-exit-btn {
+  border: 1px solid transparent;
+  background: transparent;
+  color: rgba(154, 163, 178, 0.82);
+  border-radius: 999px;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.header-mode-btn.active {
+  background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.96);
+}
+
+.header-mode-btn:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+.header-exit-btn {
+  border-color: rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.035);
+  color: rgba(255,255,255,0.9);
+}
+
 .ohlc-date {
   color: var(--text-muted);
   margin-right: var(--space-1);
