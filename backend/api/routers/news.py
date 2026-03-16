@@ -46,8 +46,39 @@ def get_news_for_date(
             (symbol, symbol),
         ).fetchall()
 
+    articles = [dict(r) for r in rows]
+    if not articles:
+        if date:
+            rows = conn.execute(
+                """SELECT nt.news_id, substr(nr.published_utc, 1, 10) as trade_date, nr.published_utc,
+                          NULL as ret_t0, NULL as ret_t1, NULL as ret_t3, NULL as ret_t5, NULL as ret_t10,
+                          nr.title, nr.description, nr.publisher, nr.article_url, nr.image_url,
+                          NULL as relevance, NULL as key_discussion, NULL as chinese_summary,
+                          NULL as sentiment, NULL as reason_growth, NULL as reason_decrease
+                   FROM news_ticker nt
+                   JOIN news_raw nr ON nt.news_id = nr.id
+                   WHERE nt.symbol = ? AND substr(nr.published_utc, 1, 10) = ?
+                   ORDER BY nr.published_utc DESC
+                   LIMIT 100""",
+                (symbol, date),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT nt.news_id, substr(nr.published_utc, 1, 10) as trade_date, nr.published_utc,
+                          NULL as ret_t0, NULL as ret_t1, NULL as ret_t3, NULL as ret_t5, NULL as ret_t10,
+                          nr.title, nr.description, nr.publisher, nr.article_url, nr.image_url,
+                          NULL as relevance, NULL as key_discussion, NULL as chinese_summary,
+                          NULL as sentiment, NULL as reason_growth, NULL as reason_decrease
+                   FROM news_ticker nt
+                   JOIN news_raw nr ON nt.news_id = nr.id
+                   WHERE nt.symbol = ?
+                   ORDER BY nr.published_utc DESC
+                   LIMIT 100""",
+                (symbol,),
+            ).fetchall()
+        articles = [dict(r) for r in rows]
     conn.close()
-    return [dict(r) for r in rows]
+    return articles
 
 
 @router.get("/{symbol}/range")
@@ -73,9 +104,22 @@ def get_news_for_range(
            ORDER BY na.published_utc DESC""",
         (symbol, symbol, start, end),
     ).fetchall()
-    conn.close()
-
     articles = [dict(r) for r in rows]
+    if not articles:
+        rows = conn.execute(
+            """SELECT nt.news_id, substr(nr.published_utc, 1, 10) as trade_date, nr.published_utc,
+                      NULL as ret_t0, NULL as ret_t1, NULL as ret_t3, NULL as ret_t5, NULL as ret_t10,
+                      nr.title, nr.description, nr.publisher, nr.article_url, nr.image_url,
+                      NULL as relevance, NULL as key_discussion, NULL as chinese_summary,
+                      NULL as sentiment, NULL as reason_growth, NULL as reason_decrease
+               FROM news_ticker nt
+               JOIN news_raw nr ON nt.news_id = nr.id
+               WHERE nt.symbol = ? AND substr(nr.published_utc, 1, 10) BETWEEN ? AND ?
+               ORDER BY nr.published_utc DESC""",
+            (symbol, start, end),
+        ).fetchall()
+        articles = [dict(r) for r in rows]
+    conn.close()
 
     # Build top bullish / bearish lists
     top_bullish = sorted(

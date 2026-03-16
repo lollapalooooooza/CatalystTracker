@@ -48,6 +48,7 @@ interface Props {
   highlightedArticleIds?: string[] | null;
   highlightColor?: string | null;
   onHover: (date: string | null, ohlc?: HoverData) => void;
+  selectedRange?: { startDate: string; endDate: string } | null;
   onRangeSelect?: (range: RangeSelection | null) => void;
   onArticleSelect?: (article: ArticleSelection | null) => void;
   onDayClick?: (date: string) => void;
@@ -85,7 +86,7 @@ interface PlacedParticle extends Particle {
   alpha: number;
 }
 
-export default function CandlestickChart({ symbol, lockedNewsId, highlightedArticleIds, highlightColor, onHover, onRangeSelect, onArticleSelect, onDayClick }: Props) {
+export default function CandlestickChart({ symbol, lockedNewsId, highlightedArticleIds, highlightColor, selectedRange, onHover, onRangeSelect, onArticleSelect, onDayClick }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -350,6 +351,24 @@ export default function CandlestickChart({ symbol, lockedNewsId, highlightedArti
       .attr('fill', 'url(#ct-line-area-gradient)')
       .attr('d', area);
 
+    if (selectedRange) {
+      const selectedData = data.filter((d) => d.dateStr >= selectedRange.startDate && d.dateStr <= selectedRange.endDate);
+      if (selectedData.length >= 2) {
+        const rangeAreaGradient = defs.append('linearGradient')
+          .attr('id', 'ct-selected-range-gradient')
+          .attr('x1', '0%')
+          .attr('y1', '0%')
+          .attr('x2', '0%')
+          .attr('y2', '100%');
+        rangeAreaGradient.append('stop').attr('offset', '0%').attr('stop-color', '#24e07a').attr('stop-opacity', 0.22);
+        rangeAreaGradient.append('stop').attr('offset', '100%').attr('stop-color', '#24e07a').attr('stop-opacity', 0.03);
+        g.append('path')
+          .datum(selectedData)
+          .attr('fill', 'url(#ct-selected-range-gradient)')
+          .attr('d', area);
+      }
+    }
+
     g.append('path')
       .datum(data)
       .attr('fill', 'none')
@@ -556,8 +575,9 @@ export default function CandlestickChart({ symbol, lockedNewsId, highlightedArti
             const hit = findParticle(absX, absY);
             if (hit) {
               onArticleSelect?.({ newsId: hit.id, date: hit.d });
+            } else if (selectedRange) {
+              onRangeSelect?.(null);
             } else {
-              // Click on background: unlock any locked article, then show similar days
               onArticleSelect?.(null);
               onDayClick?.(d.dateStr);
             }
