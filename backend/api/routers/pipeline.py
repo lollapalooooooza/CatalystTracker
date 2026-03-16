@@ -62,7 +62,7 @@ def _do_fetch(symbol: str, start: str, end: str):
         conn.commit()
 
         # News
-        articles = fetch_news(symbol, start, end)
+        articles = fetch_news(symbol, start, end, per_page=100, max_pages=8)
         for art in articles:
             news_id = art.get("id")
             if not news_id:

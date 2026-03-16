@@ -93,7 +93,7 @@ def fetch_and_store_news(symbol: str) -> int:
         "ticker": symbol,
         "published_utc.gte": START,
         "published_utc.lte": END,
-        "limit": 50,
+        "limit": 100,
         "order": "asc",
     }
     next_url = None

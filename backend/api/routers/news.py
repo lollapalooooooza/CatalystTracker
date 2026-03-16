@@ -258,6 +258,38 @@ def get_news_categories(symbol: str):
            ORDER BY na.trade_date DESC""",
         (symbol, symbol),
     ).fetchall()
+    if not rows:
+        conn.close()
+        _backfill_symbol_news(symbol)
+        conn = get_conn()
+        rows = conn.execute(
+            """SELECT na.news_id,
+                      nr.title,
+                      l1.key_discussion,
+                      l1.reason_growth,
+                      l1.reason_decrease,
+                      l1.sentiment
+               FROM news_aligned na
+               JOIN news_raw nr ON na.news_id = nr.id
+               LEFT JOIN layer1_results l1 ON na.news_id = l1.news_id AND l1.symbol = ?
+               WHERE na.symbol = ?
+               ORDER BY na.trade_date DESC""",
+            (symbol, symbol),
+        ).fetchall()
+        if not rows:
+            rows = conn.execute(
+                """SELECT nt.news_id,
+                          nr.title,
+                          NULL as key_discussion,
+                          NULL as reason_growth,
+                          NULL as reason_decrease,
+                          NULL as sentiment
+                   FROM news_ticker nt
+                   JOIN news_raw nr ON nt.news_id = nr.id
+                   WHERE nt.symbol = ?
+                   ORDER BY nr.published_utc DESC""",
+                (symbol,),
+            ).fetchall()
     conn.close()
 
     CATEGORY_KEYWORDS = {
