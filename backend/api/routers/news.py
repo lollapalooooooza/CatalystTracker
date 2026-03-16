@@ -13,7 +13,9 @@ router = APIRouter()
 def _backfill_symbol_news(symbol: str, days: int = 180) -> None:
     end = datetime.now(timezone.utc).date().isoformat()
     start = (datetime.now(timezone.utc).date() - timedelta(days=days)).isoformat()
-    articles = fetch_news(symbol, start, end, per_page=100, max_pages=8)
+    from backend.polygon.client import get_ticker_details
+    details = get_ticker_details(symbol) or {}
+    articles = fetch_news(symbol, start, end, per_page=100, max_pages=8, company_name=details.get('name'))
     if not articles:
         return
     conn = get_conn()

@@ -1,7 +1,11 @@
 import time
 import json
+import hashlib
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
+from urllib.parse import quote_plus
+from xml.etree import ElementTree as ET
+from email.utils import parsedate_to_datetime
 import requests
 
 from backend.config import settings
@@ -182,6 +186,72 @@ def fetch_ohlc(ticker: str, start: str, end: str) -> List[Dict[str, Any]]:
     return _fetch_ohlc_stooq(ticker, start, end)
 
 
+def _fetch_google_news_rss(query: str, ticker: str, max_items: int = 40) -> List[Dict[str, Any]]:
+    url = f"https://news.google.com/rss/search?q={quote_plus(query)}&hl=en-US&gl=US&ceid=US:en"
+    try:
+        resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
+        resp.raise_for_status()
+        root = ET.fromstring(resp.text)
+    except Exception:
+        return []
+
+    articles: List[Dict[str, Any]] = []
+    for item in root.findall('.//item')[:max_items]:
+        title = item.findtext('title') or ''
+        link = item.findtext('link') or ''
+        desc = item.findtext('description') or ''
+        pub = item.findtext('pubDate') or ''
+        source = item.findtext('source') or 'Google News'
+        try:
+            published = parsedate_to_datetime(pub).astimezone(timezone.utc).isoformat()
+        except Exception:
+            published = datetime.now(timezone.utc).isoformat()
+        aid = 'rss_' + hashlib.sha1(f'{title}|{link}'.encode('utf-8')).hexdigest()[:24]
+        articles.append({
+            'id': aid,
+            'publisher': source,
+            'title': title,
+            'author': None,
+            'published_utc': published,
+            'amp_url': None,
+            'article_url': link,
+            'tickers': [ticker],
+            'description': desc,
+            'insights': None,
+        })
+    return articles
+
+
+def _fetch_news_fallbacks(ticker: str, company_name: Optional[str], start: str, end: str) -> List[Dict[str, Any]]:
+    queries = [
+        f'"{ticker}" stock site:finance.yahoo.com OR site:seekingalpha.com OR site:news.google.com',
+        f'"{ticker}" stock market news',
+    ]
+    if company_name:
+        queries.extend([
+            f'"{company_name}" stock site:finance.yahoo.com OR site:seekingalpha.com OR site:news.google.com',
+            f'"{company_name}" "{ticker}" stock',
+        ])
+    start_dt = datetime.fromisoformat(start).date()
+    end_dt = datetime.fromisoformat(end).date()
+    merged: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for q in queries:
+        for art in _fetch_google_news_rss(q, ticker):
+            aid = art.get('id')
+            if not aid or aid in seen:
+                continue
+            try:
+                d = datetime.fromisoformat(art['published_utc'].replace('Z', '+00:00')).date()
+                if d < start_dt or d > end_dt:
+                    continue
+            except Exception:
+                pass
+            seen.add(aid)
+            merged.append(art)
+    return merged
+
+
 def fetch_news(
     ticker: str,
     start: str,
@@ -189,8 +259,9 @@ def fetch_news(
     per_page: int = 50,
     page_sleep: float = 1.2,
     max_pages: Optional[int] = None,
+    company_name: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """Fetch all news for a ticker from Polygon, with pagination."""
+    """Fetch all news for a ticker from Polygon, with pagination and source fallbacks."""
     url = f"{BASE}/v2/reference/news"
     params = {
         "ticker": ticker,
@@ -234,6 +305,15 @@ def fetch_news(
         if not next_url:
             break
         time.sleep(page_sleep)
+
+    if len(all_articles) < 25:
+        seen = {a.get('id') for a in all_articles if a.get('id')}
+        for art in _fetch_news_fallbacks(ticker, company_name, start, end):
+            if art.get('id') in seen:
+                continue
+            all_articles.append(art)
+            if art.get('id'):
+                seen.add(art['id'])
 
     return all_articles
 

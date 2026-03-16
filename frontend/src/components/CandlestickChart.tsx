@@ -422,6 +422,7 @@ export default function CandlestickChart({ symbol, lockedNewsId, highlightedArti
     const placed: PlacedParticle[] = [];
     // Particle vertical spacing in pixels
     const pSpacing = Math.max(4.5, Math.min(7, height / 80));
+    const particleBottomLimit = margin.top + height - 34;
 
     for (const [dateStr, pArr] of particlesByDate) {
       const ohlc = dateToOhlc.get(dateStr);
@@ -437,16 +438,15 @@ export default function CandlestickChart({ symbol, lockedNewsId, highlightedArti
         return Math.abs(b.rt1 || 0) - Math.abs(a.rt1 || 0);
       });
 
-      // Stack particles downward from the close price (like dangling below the candle)
+      // Stack particles downward from the close price, but never below the timeline area.
       for (let i = 0; i < pArr.length; i++) {
         const p = pArr[i];
         const radius = getParticleRadius(p.r, p.rt1);
-        // First particle starts just below the candle low, then stack downward
-        const candleLowY = y(ohlc.low);
-        const py = margin.top + candleLowY + 6 + i * pSpacing;
-
-        // Don't render if beyond chart bottom
-        if (py > margin.top + height + 10) break;
+        const lineY = y(ohlc.close);
+        const desiredPy = margin.top + lineY + 8 + i * pSpacing;
+        const py = Math.min(desiredPy, particleBottomLimit);
+        const overflow = Math.max(0, desiredPy - particleBottomLimit);
+        const alphaDecay = overflow > 0 ? Math.max(0.12, 0.68 - overflow / 42) : 0.68;
 
         placed.push({
           ...p,
@@ -454,7 +454,7 @@ export default function CandlestickChart({ symbol, lockedNewsId, highlightedArti
           py,
           radius,
           color: getSentimentColor(p.s),
-          alpha: getParticleAlpha(p.r) * 0.68,
+          alpha: getParticleAlpha(p.r) * alphaDecay,
         });
       }
     }
