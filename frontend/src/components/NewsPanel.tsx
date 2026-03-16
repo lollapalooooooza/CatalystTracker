@@ -54,6 +54,7 @@ export default function NewsPanel({ symbol, hoveredDate, onFindSimilar, highligh
   const [displayDate, setDisplayDate] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const cacheRef = useRef<Map<string, NewsItem[]>>(new Map());
+  const requestSeqRef = useRef(0);
   const listRef = useRef<HTMLDivElement>(null);
 
   // Debounced fetch on hover
@@ -65,6 +66,7 @@ export default function NewsPanel({ symbol, hoveredDate, onFindSimilar, highligh
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
     debounceRef.current = setTimeout(() => {
+      const reqId = ++requestSeqRef.current;
       const cacheKey = `${symbol}_${hoveredDate}`;
       const cached = cacheRef.current.get(cacheKey);
       if (cached) {
@@ -77,19 +79,24 @@ export default function NewsPanel({ symbol, hoveredDate, onFindSimilar, highligh
       axios
         .get(`/api/news/${symbol}?date=${hoveredDate}`)
         .then((res) => {
+          if (reqId !== requestSeqRef.current) return;
           cacheRef.current.set(cacheKey, res.data);
           setNews(sortBySentiment(res.data));
           setDisplayDate(hoveredDate);
         })
         .catch(() => {})
-        .finally(() => setLoading(false));
+        .finally(() => {
+          if (reqId === requestSeqRef.current) setLoading(false);
+        });
     }, 120);
   }, [symbol, hoveredDate]);
 
   // Clear cache on symbol change
   useEffect(() => {
+    requestSeqRef.current += 1;
     cacheRef.current.clear();
     setNews([]);
+    setLoading(false);
     setDisplayDate(null);
   }, [symbol]);
 

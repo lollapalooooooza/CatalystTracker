@@ -218,6 +218,7 @@ function App() {
     if (selectedDay) {
       return (
         <SimilarDaysPanel
+          key={`similar-${selectedSymbol}-${selectedDay}`}
           symbol={selectedSymbol}
           date={selectedDay}
           onClose={() => setSelectedDay(null)}
@@ -354,6 +355,7 @@ function App() {
         <div className="news-area">
           {selectedSymbol && (
             <NewsCategoryPanel
+              key={`category-${selectedSymbol}`}
               symbol={selectedSymbol}
               activeCategory={activeCategory}
               onCategoryChange={handleCategoryChange}
