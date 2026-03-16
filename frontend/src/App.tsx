@@ -171,10 +171,6 @@ function App() {
     setActiveCategoryColor(color ?? null);
   }, []);
 
-  function handleChartViewCommand(command: 'zoom-in' | 'zoom-out' | 'pan-left' | 'pan-right' | 'reset') {
-    window.dispatchEvent(new CustomEvent('chart-view-command', { detail: { command } }));
-  }
-
   function handleSelectSymbol(symbol: string) {
     setSelectedSymbol(symbol);
     setHoveredDate(null);
@@ -312,13 +308,6 @@ function App() {
         <div className="chart-area" ref={chartAreaRef}>
           {selectedSymbol ? (
             <>
-              <div className="chart-toolbar">
-                <button className="chart-toolbar-btn" onClick={() => handleChartViewCommand('zoom-in')} title="Zoom in">＋</button>
-                <button className="chart-toolbar-btn" onClick={() => handleChartViewCommand('zoom-out')} title="Zoom out">－</button>
-                <button className="chart-toolbar-btn" onClick={() => handleChartViewCommand('pan-left')} title="Pan left">←</button>
-                <button className="chart-toolbar-btn" onClick={() => handleChartViewCommand('pan-right')} title="Pan right">→</button>
-                <button className="chart-toolbar-btn chart-toolbar-btn-reset" onClick={() => handleChartViewCommand('reset')} title="Reset view">Reset</button>
-              </div>
               <CandlestickChart
                 symbol={selectedSymbol}
                 lockedNewsId={lockedArticle?.newsId ?? null}

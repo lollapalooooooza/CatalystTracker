@@ -60,6 +60,7 @@ const SENTIMENT_COLOR: Record<string, string> = {
   neutral: '#00e5ff',
 };
 const SENTIMENT_COLOR_DEFAULT = '#555';
+const MIN_VIEW_COUNT = 20;
 
 function getSentimentColor(s: string | null): string {
   return (s && SENTIMENT_COLOR[s]) || SENTIMENT_COLOR_DEFAULT;
@@ -113,45 +114,11 @@ export default function CandlestickChart({ symbol, lockedNewsId, highlightedArti
       onHover(d.dateStr, { date: d.dateStr, open: d.open, high: d.high, low: d.low, close: d.close, change: d.change });
     }
 
-    function handleViewCommand(e: Event) {
-      const command = (e as CustomEvent).detail?.command as string | undefined;
-      const total = rawOhlcData.length;
-      if (!command || total <= 1) return;
-
-      setViewCount((prevCount) => {
-        const currentCount = prevCount ?? total;
-        const minCount = Math.min(20, total);
-        const nextCount = command === 'zoom-in'
-          ? Math.max(minCount, Math.floor(currentCount * 0.7))
-          : command === 'zoom-out'
-            ? Math.min(total, Math.ceil(currentCount / 0.7))
-            : currentCount;
-
-        setViewStart((prevStart) => {
-          const maxStartCurrent = Math.max(0, total - currentCount);
-          const safeStart = Math.min(prevStart, maxStartCurrent);
-          const step = Math.max(1, Math.floor(currentCount * 0.4));
-
-          if (command === 'pan-left') return Math.max(0, safeStart - step);
-          if (command === 'pan-right') return Math.min(Math.max(0, total - currentCount), safeStart + step);
-          if (command === 'reset') return Math.max(0, total - total);
-
-          const center = safeStart + currentCount / 2;
-          const maxStartNext = Math.max(0, total - nextCount);
-          return Math.max(0, Math.min(maxStartNext, Math.round(center - nextCount / 2)));
-        });
-
-        return command === 'reset' ? total : nextCount;
-      });
-    }
-
     window.addEventListener('chart-navigate', handleNav);
-    window.addEventListener('chart-view-command', handleViewCommand);
     return () => {
       window.removeEventListener('chart-navigate', handleNav);
-      window.removeEventListener('chart-view-command', handleViewCommand);
     };
-  }, [onHover, rawOhlcData.length]);
+  }, [onHover]);
 
   // Refs for interaction state (avoid re-renders)
   const placedRef = useRef<PlacedParticle[]>([]);
@@ -332,36 +299,35 @@ export default function CandlestickChart({ symbol, lockedNewsId, highlightedArti
       .range([height, 0]);
 
     // Grid lines
-    g.append('g')
+    const gridY = g.append('g')
       .attr('class', 'grid-y')
       .call(
         d3.axisLeft(y)
           .ticks(8)
           .tickSize(-width)
           .tickFormat(() => '')
-      )
-      .selectAll('line')
-      .style('stroke', '#1a1e2e')
+      );
+    gridY.selectAll('line')
+      .style('stroke', 'rgba(255,255,255,0.045)')
       .style('stroke-width', 1);
-    g.selectAll('.grid-y .domain').remove();
+    gridY.selectAll('.domain').remove();
 
     // X Axis
-    g.append('g')
+    const xAxis = g.append('g')
       .attr('transform', `translate(0,${height})`)
-      .call(d3.axisBottom(x).ticks(8).tickFormat(d3.timeFormat('%b %y') as any))
-      .selectAll('text')
-      .style('font-size', '12px')
-      .style('fill', '#555');
+      .call(d3.axisBottom(x).ticks(8).tickFormat(d3.timeFormat('%b %y') as any));
+    xAxis.selectAll('text')
+      .style('font-size', '11px')
+      .style('fill', 'rgba(154, 163, 178, 0.42)');
+    xAxis.selectAll('.domain, .tick line').remove();
 
     // Y Axis
-    g.append('g')
-      .call(d3.axisLeft(y).ticks(6).tickFormat((d) => `$${Number(d).toFixed(0)}`))
-      .selectAll('text')
-      .style('font-size', '12px')
-      .style('fill', '#555');
-
-    g.selectAll('.domain').style('stroke', '#1a2030');
-    g.selectAll('.tick line').style('stroke', '#1a2030');
+    const yAxis = g.append('g')
+      .call(d3.axisLeft(y).ticks(6).tickFormat((d) => `$${Number(d).toFixed(0)}`));
+    yAxis.selectAll('text')
+      .style('font-size', '11px')
+      .style('fill', 'rgba(154, 163, 178, 0.58)');
+    yAxis.selectAll('.domain, .tick line').remove();
 
     const candleWidth = Math.max(1.5, (width / data.length) * 0.65);
 
@@ -683,8 +649,34 @@ export default function CandlestickChart({ symbol, lockedNewsId, highlightedArti
       });
   }
 
+  const total = rawOhlcData.length;
+  const currentCount = viewCount ?? total;
+
+  function handleZoomIn() {
+    if (total <= 1) return;
+    const minCount = Math.min(MIN_VIEW_COUNT, total);
+    const nextCount = Math.max(minCount, Math.floor(currentCount * 0.72));
+    const center = viewStart + currentCount / 2;
+    const maxStart = Math.max(0, total - nextCount);
+    setViewCount(nextCount);
+    setViewStart(Math.max(0, Math.min(maxStart, Math.round(center - nextCount / 2))));
+  }
+
+  function handleZoomOut() {
+    if (total <= 1) return;
+    const nextCount = Math.min(total, Math.ceil(currentCount / 0.72));
+    const center = viewStart + currentCount / 2;
+    const maxStart = Math.max(0, total - nextCount);
+    setViewCount(nextCount);
+    setViewStart(Math.max(0, Math.min(maxStart, Math.round(center - nextCount / 2))));
+  }
+
   return (
     <div ref={containerRef} className="chart-container">
+      <div className="chart-toolbar chart-toolbar-minimal">
+        <button className="chart-toolbar-btn" onClick={handleZoomIn} title="Zoom in" aria-label="Zoom in">＋</button>
+        <button className="chart-toolbar-btn" onClick={handleZoomOut} title="Zoom out" aria-label="Zoom out">－</button>
+      </div>
       {loading && (
         <div className="chart-loading-skeleton">
           <div className="chart-skeleton-bars">
