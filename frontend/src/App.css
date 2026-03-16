@@ -457,6 +457,57 @@ button:active:not(:disabled) {
     "chart      prediction"
     "news       prediction";
   overflow: hidden;
+  position: relative;
+}
+
+.app-main.ticker-switching .chart-area,
+.app-main.ticker-switching .prediction-area,
+.app-main.ticker-switching .news-area {
+  opacity: 0.28;
+  filter: saturate(0.8) blur(1px);
+  pointer-events: none;
+}
+
+.ticker-switch-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.ticker-switch-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 16px;
+  background: rgba(12, 16, 24, 0.64);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: 0 16px 42px rgba(0,0,0,0.26);
+}
+
+.ticker-switch-spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 2px solid rgba(255,255,255,0.16);
+  border-top-color: #17d96c;
+  animation: ticker-spin 0.85s linear infinite;
+}
+
+.ticker-switch-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(240,245,250,0.92);
+}
+
+@keyframes ticker-spin {
+  to { transform: rotate(360deg); }
 }
 
 .chart-area {

@@ -28,6 +28,7 @@ interface ArticleSelection {
 function App() {
   const [activeTickers, setActiveTickers] = useState<string[]>([]);
   const [selectedSymbol, setSelectedSymbol] = useState('');
+  const [tickerSwitching, setTickerSwitching] = useState(false);
   const [hoveredDate, setHoveredDate] = useState<string | null>(null);
   const [selectedRange, setSelectedRange] = useState<RangeSelection | null>(null);
   const [rangeQuestion, setRangeQuestion] = useState<string | null>(null);
@@ -164,6 +165,8 @@ function App() {
   }, []);
 
   function handleSelectSymbol(symbol: string) {
+    if (!symbol || symbol === selectedSymbol) return;
+    setTickerSwitching(true);
     setSelectedSymbol(symbol);
     setHoveredDate(null);
     setSelectedRange(null);
@@ -283,7 +286,7 @@ function App() {
         </div>
       </header>
 
-      <main className="app-main">
+      <main className={`app-main ${tickerSwitching ? 'ticker-switching' : ''}`}>
         <div className="chart-area" ref={chartAreaRef}>
           {selectedSymbol ? (
             <>
