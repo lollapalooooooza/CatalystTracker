@@ -337,8 +337,8 @@ export default function CandlestickChart({ symbol, lockedNewsId, highlightedArti
     g.append('path')
       .datum(data)
       .attr('fill', 'none')
-      .attr('stroke', 'rgba(255,255,255,0.16)')
-      .attr('stroke-width', 4)
+      .attr('stroke', 'rgba(0, 230, 118, 0.18)')
+      .attr('stroke-width', 5)
       .attr('stroke-linecap', 'round')
       .attr('stroke-linejoin', 'round')
       .attr('d', line);
@@ -346,8 +346,8 @@ export default function CandlestickChart({ symbol, lockedNewsId, highlightedArti
     g.append('path')
       .datum(data)
       .attr('fill', 'none')
-      .attr('stroke', '#f4f7fb')
-      .attr('stroke-width', 2)
+      .attr('stroke', '#00e676')
+      .attr('stroke-width', 2.2)
       .attr('stroke-linecap', 'round')
       .attr('stroke-linejoin', 'round')
       .attr('d', line);
