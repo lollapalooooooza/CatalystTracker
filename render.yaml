@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: catalysttracker-api
+    env: python
+    plan: starter
+    rootDir: .
+    buildCommand: pip install -r requirements.txt
+    startCommand: bash ./start.sh
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: DATABASE_PATH
+        value: /opt/render/project/src/pokieticker.db
+      - key: POLYGON_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false

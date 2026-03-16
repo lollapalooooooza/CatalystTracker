@@ -1,0 +1,106 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+:root {
+  /* === Typography === */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+
+  /* === Spacing Scale === */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* === Border Radius === */
+  --radius-xs: 3px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 10px;
+  --radius-2xl: 12px;
+  --radius-full: 9999px;
+
+  /* === Background Colors === */
+  --bg-root: #0f1117;
+  --bg-chart: #06090f;
+  --bg-panel: #1a1d29;
+  --bg-card: #252836;
+  --bg-card-hover: #2a2e3e;
+  --bg-dropdown: #1e2030;
+  --bg-input: #252836;
+  --bg-input-focus: #2a2e3e;
+  --bg-sentiment-bar: #161822;
+  --bg-badge: #333648;
+  --bg-highlighted: #1a2535;
+
+  /* === Border Colors === */
+  --border-primary: #2a2d3a;
+  --border-subtle: #1a1e2e;
+  --border-card: #3a3d4a;
+  --border-grid: #1a2030;
+
+  /* === Accent Colors === */
+  --accent: #667eea;
+  --accent-hover: #5a6fd6;
+  --accent-subtle: rgba(102, 126, 234, 0.1);
+  --accent-bg: rgba(102, 126, 234, 0.06);
+  --accent-border: rgba(102, 126, 234, 0.3);
+  --accent-glow: rgba(102, 126, 234, 0.15);
+
+  /* === Semantic Colors === */
+  --green: #00e676;
+  --green-teal: #26a69a;
+  --green-bg: rgba(0, 230, 118, 0.15);
+  --green-bg-subtle: rgba(0, 230, 118, 0.06);
+  --green-border: rgba(0, 230, 118, 0.25);
+
+  --red: #ff5252;
+  --red-dim: #ef5350;
+  --red-bg: rgba(255, 82, 82, 0.15);
+  --red-bg-subtle: rgba(255, 82, 82, 0.06);
+  --red-border: rgba(255, 82, 82, 0.25);
+
+  --cyan: #00e5ff;
+  --cyan-bg: rgba(0, 229, 255, 0.1);
+  --cyan-glow: rgba(0, 229, 255, 0.15);
+
+  /* === Text Colors === */
+  --text-primary: #e0e0e0;
+  --text-secondary: #ccc;
+  --text-tertiary: #aaa;
+  --text-muted: #888;
+  --text-faint: #666;
+  --text-dim: #555;
+  --text-white: #fff;
+  --text-heading: #ddd;
+
+  /* === Shadows === */
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.5);
+  --shadow-xl: 0 16px 48px rgba(0, 0, 0, 0.6);
+
+  /* === Transitions === */
+  --transition-fast: 0.12s ease;
+  --transition-normal: 0.2s ease;
+  --transition-slow: 0.3s ease;
+
+  /* === Z-index === */
+  --z-dropdown: 200;
+  --z-popup: 1000;
+  --z-toast: 1100;
+
+  font-family: var(--font-sans);
+  line-height: 1.5;
+  font-weight: 400;
+  color: var(--text-primary);
+  background-color: var(--bg-root);
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+}
