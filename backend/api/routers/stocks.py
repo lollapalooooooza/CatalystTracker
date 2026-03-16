@@ -158,10 +158,11 @@ def _fetch_ticker_data(symbol: str):
                     row["transactions"],
                 ),
             )
-        conn.execute(
-            "UPDATE tickers SET last_ohlc_fetch = ? WHERE symbol = ?",
-            (end, symbol),
-        )
+        if ohlc_rows:
+            conn.execute(
+                "UPDATE tickers SET last_ohlc_fetch = ? WHERE symbol = ?",
+                (end, symbol),
+            )
         conn.commit()
 
         # Fetch news

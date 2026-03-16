@@ -50,12 +50,112 @@ def http_get(
     raise RuntimeError("Unreachable")
 
 
+def _fetch_ohlc_yahoo(ticker: str, start: str, end: str) -> List[Dict[str, Any]]:
+    """Fallback OHLC fetch via Yahoo Finance chart API."""
+    start_ts = int(datetime.fromisoformat(start).replace(tzinfo=timezone.utc).timestamp())
+    end_ts = int(datetime.fromisoformat(end).replace(tzinfo=timezone.utc).timestamp()) + 86400
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
+    params = {
+        "period1": start_ts,
+        "period2": end_ts,
+        "interval": "1d",
+        "includePrePost": "false",
+        "events": "div,splits",
+    }
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36",
+        "Accept": "application/json,text/plain,*/*",
+        "Referer": "https://finance.yahoo.com/",
+    }
+    payload = None
+    for i in range(4):
+        try:
+            resp = requests.get(url, params=params, headers=headers, timeout=30)
+            if resp.status_code == 429:
+                time.sleep(min(2 ** i, 8))
+                continue
+            resp.raise_for_status()
+            payload = resp.json()
+            break
+        except requests.RequestException:
+            time.sleep(min(2 ** i, 8))
+    if payload is None:
+        return []
+    result = ((payload.get("chart") or {}).get("result") or [None])[0]
+    if not result:
+        return []
+
+    timestamps = result.get("timestamp") or []
+    indicators = (((result.get("indicators") or {}).get("quote") or [None])[0]) or {}
+    opens = indicators.get("open") or []
+    highs = indicators.get("high") or []
+    lows = indicators.get("low") or []
+    closes = indicators.get("close") or []
+    volumes = indicators.get("volume") or []
+
+    rows: List[Dict[str, Any]] = []
+    for i, ts in enumerate(timestamps):
+        o = opens[i] if i < len(opens) else None
+        h = highs[i] if i < len(highs) else None
+        l = lows[i] if i < len(lows) else None
+        c = closes[i] if i < len(closes) else None
+        v = volumes[i] if i < len(volumes) else None
+        if o is None or h is None or l is None or c is None:
+            continue
+        d = datetime.fromtimestamp(int(ts), tz=timezone.utc).date().isoformat()
+        rows.append({"date": d, "open": o, "high": h, "low": l, "close": c, "volume": v, "vwap": None, "transactions": None})
+    return rows
+
+
+def _fetch_ohlc_stooq(ticker: str, start: str, end: str) -> List[Dict[str, Any]]:
+    """Second fallback via Stooq daily CSV."""
+    url = "https://stooq.com/q/d/l/"
+    params = {"s": f"{ticker.lower()}.us", "i": "d"}
+    headers = {"User-Agent": "Mozilla/5.0"}
+    resp = requests.get(url, params=params, headers=headers, timeout=30)
+    resp.raise_for_status()
+    text = resp.text.strip()
+    if not text or text.lower().startswith("no data"):
+        return []
+
+    rows: List[Dict[str, Any]] = []
+    start_d = datetime.fromisoformat(start).date()
+    end_d = datetime.fromisoformat(end).date()
+    lines = text.splitlines()
+    for line in lines[1:]:
+        parts = line.split(',')
+        if len(parts) < 6:
+            continue
+        ds, o, h, l, c, v = parts[:6]
+        try:
+            d = datetime.fromisoformat(ds).date()
+            if d < start_d or d > end_d:
+                continue
+            rows.append({
+                "date": d.isoformat(),
+                "open": float(o),
+                "high": float(h),
+                "low": float(l),
+                "close": float(c),
+                "volume": float(v) if v not in ('', '0') else 0.0,
+                "vwap": None,
+                "transactions": None,
+            })
+        except Exception:
+            continue
+    return rows
+
+
 def fetch_ohlc(ticker: str, start: str, end: str) -> List[Dict[str, Any]]:
-    """Fetch daily OHLC data from Polygon."""
+    """Fetch daily OHLC data from Polygon, with Yahoo fallback if needed."""
     url = f"{BASE}/v2/aggs/ticker/{ticker}/range/1/day/{start}/{end}"
     params = {"adjusted": "true", "sort": "asc", "limit": 50000}
-    resp = http_get(url, params=params)
-    results = resp.json().get("results") or []
+    try:
+        resp = http_get(url, params=params)
+        results = resp.json().get("results") or []
+    except Exception:
+        results = []
+
     rows = []
     for r in results:
         d = datetime.fromtimestamp(int(r["t"]) / 1000, tz=timezone.utc).date().isoformat()
@@ -71,7 +171,15 @@ def fetch_ohlc(ticker: str, start: str, end: str) -> List[Dict[str, Any]]:
                 "transactions": r.get("n"),
             }
         )
-    return rows
+
+    if rows:
+        return rows
+
+    rows = _fetch_ohlc_yahoo(ticker, start, end)
+    if rows:
+        return rows
+
+    return _fetch_ohlc_stooq(ticker, start, end)
 
 
 def fetch_news(
