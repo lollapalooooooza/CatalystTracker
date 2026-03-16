@@ -92,11 +92,12 @@ def get_ohlc(
     start: Optional[str] = None,
     end: Optional[str] = None,
 ):
-    """Get OHLC data for a symbol."""
+    """Get OHLC data for a symbol. Auto-backfill on first request if missing."""
+    symbol = symbol.upper()
     conn = get_conn()
 
     query = "SELECT * FROM ohlc WHERE symbol = ?"
-    params: list = [symbol.upper()]
+    params: list = [symbol]
 
     if start:
         query += " AND date >= ?"
@@ -108,6 +109,45 @@ def get_ohlc(
     query += " ORDER BY date ASC"
     rows = conn.execute(query, params).fetchall()
     conn.close()
+
+    if not rows:
+        today = datetime.now(timezone.utc).date()
+        fetch_start = start or (today - timedelta(days=2 * 366)).isoformat()
+        fetch_end = end or today.isoformat()
+        try:
+            ohlc_rows = fetch_ohlc(symbol, fetch_start, fetch_end)
+            if ohlc_rows:
+                conn = get_conn()
+                conn.execute(
+                    "INSERT OR IGNORE INTO tickers (symbol, name) VALUES (?, ?)",
+                    (symbol, symbol),
+                )
+                for row in ohlc_rows:
+                    conn.execute(
+                        """INSERT OR IGNORE INTO ohlc
+                           (symbol, date, open, high, low, close, volume, vwap, transactions)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            symbol,
+                            row["date"],
+                            row["open"],
+                            row["high"],
+                            row["low"],
+                            row["close"],
+                            row["volume"],
+                            row["vwap"],
+                            row["transactions"],
+                        ),
+                    )
+                conn.execute(
+                    "UPDATE tickers SET last_ohlc_fetch = ? WHERE symbol = ?",
+                    (fetch_end, symbol),
+                )
+                conn.commit()
+                rows = conn.execute(query, params).fetchall()
+                conn.close()
+        except Exception:
+            logger.exception("Auto-backfill OHLC failed for %s", symbol)
 
     if not rows:
         raise HTTPException(status_code=404, detail=f"No OHLC data for {symbol}")
