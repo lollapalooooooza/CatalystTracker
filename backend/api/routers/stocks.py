@@ -19,6 +19,75 @@ class AddTickerRequest(BaseModel):
     name: Optional[str] = None
 
 
+class PrefetchTickersRequest(BaseModel):
+    symbols: list[str]
+
+
+def _ensure_ohlc(symbol: str, start: Optional[str] = None, end: Optional[str] = None):
+    symbol = symbol.upper()
+    today = datetime.now(timezone.utc).date()
+    fetch_start = start or (today - timedelta(days=2 * 366)).isoformat()
+    fetch_end = end or today.isoformat()
+
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM ohlc WHERE symbol = ?" +
+        (" AND date >= ?" if start else "") +
+        (" AND date <= ?" if end else "") +
+        " ORDER BY date ASC",
+        [symbol, *([start] if start else []), *([end] if end else [])],
+    ).fetchall()
+    conn.close()
+    if rows:
+        return [dict(r) for r in rows]
+
+    ohlc_rows = fetch_ohlc(symbol, fetch_start, fetch_end)
+    if not ohlc_rows:
+        return []
+
+    conn = get_conn()
+    details = None
+    try:
+        details = get_ticker_details(symbol)
+    except Exception:
+        details = None
+    conn.execute(
+        "INSERT OR IGNORE INTO tickers (symbol, name, sector) VALUES (?, ?, ?)",
+        (symbol, (details or {}).get('name') or symbol, (details or {}).get('sector') or ''),
+    )
+    for row in ohlc_rows:
+        conn.execute(
+            """INSERT OR IGNORE INTO ohlc
+               (symbol, date, open, high, low, close, volume, vwap, transactions)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                symbol,
+                row["date"],
+                row["open"],
+                row["high"],
+                row["low"],
+                row["close"],
+                row["volume"],
+                row["vwap"],
+                row["transactions"],
+            ),
+        )
+    conn.execute(
+        "UPDATE tickers SET last_ohlc_fetch = ? WHERE symbol = ?",
+        (fetch_end, symbol),
+    )
+    conn.commit()
+    rows = conn.execute(
+        "SELECT * FROM ohlc WHERE symbol = ?" +
+        (" AND date >= ?" if start else "") +
+        (" AND date <= ?" if end else "") +
+        " ORDER BY date ASC",
+        [symbol, *([start] if start else []), *([end] if end else [])],
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
 @router.get("")
 def list_tickers():
     """List all tracked tickers."""
