@@ -277,7 +277,13 @@ def generate_forecast(symbol: str, window_days: int = 7) -> dict:
     for horizon in ["t1", "t5"]:
         model_path = MODELS_DIR / f"{symbol}_{horizon}.joblib"
         meta_path = MODELS_DIR / f"{symbol}_{horizon}_meta.json"
+
+        # Fall back to unified model if per-ticker model is missing
         if not model_path.exists():
+            model_path = MODELS_DIR / f"UNIFIED_{horizon}.joblib"
+            meta_path = MODELS_DIR / f"UNIFIED_{horizon}_meta.json"
+
+        if not model_path.exists() or not meta_path.exists():
             continue
 
         model = joblib.load(model_path)
