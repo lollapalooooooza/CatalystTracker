@@ -1,15 +1,8 @@
-# PokieTicker — Understand the "Why" Behind Every Price Move
-
-**🔗 Live Demo: [mitrui.com/PokieTicker](https://mitrui.com/PokieTicker/)** | [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-support-yellow?logo=buymeacoffee)](https://buymeacoffee.com/mitrui)
+# CatalystTracker — Understand the "Why" Behind Every Price Move
 
 Since I wanted to understand the stories behind candlestick charts, I vibe coded this app.
 
 As a stock market beginner, the news was too fragmented and I was wasting a lot of time, never understanding why prices went up or down. I built PokieTicker to develop **event-driven thinking** — to understand the "why" behind every price move.
-
-<!-- Replace YOUR_TWEET_URL with your actual X post URL -->
-[![Watch Demo](docs/demo.gif)](YOUR_TWEET_URL)
-
-> Click to watch the full demo video
 
 ## What It Does
 
