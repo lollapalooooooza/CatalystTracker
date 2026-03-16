@@ -162,13 +162,7 @@ export default function CandlestickChart({ symbol, lockedNewsId, highlightedArti
       const isCategoryMatch = hlSet != null && hlSet.has(p.id);
       const hasCategoryFilter = hlSet != null;
 
-      // Category filter: hide non-matching particles entirely
-      if (hasCategoryFilter && !isCategoryMatch && !isLocked && !isHover) {
-        continue;
-      }
-
-      let alpha = p.alpha;
-      if (isCategoryMatch && hasCategoryFilter) alpha = 1;
+      let alpha = hasCategoryFilter ? (isCategoryMatch || isLocked || isHover ? 0.96 : 0.14) : p.alpha * 0.82;
       if (isHover || isLocked) alpha = 1;
       ctx.globalAlpha = alpha;
 
@@ -329,16 +323,38 @@ export default function CandlestickChart({ symbol, lockedNewsId, highlightedArti
       .style('fill', 'rgba(154, 163, 178, 0.58)');
     yAxis.selectAll('.domain, .tick line').remove();
 
+    const defs = svg.append('defs');
+    const areaGradient = defs.append('linearGradient')
+      .attr('id', 'ct-line-area-gradient')
+      .attr('x1', '0%')
+      .attr('y1', '0%')
+      .attr('x2', '0%')
+      .attr('y2', '100%');
+    areaGradient.append('stop').attr('offset', '0%').attr('stop-color', '#00e676').attr('stop-opacity', 0.12);
+    areaGradient.append('stop').attr('offset', '55%').attr('stop-color', '#00e676').attr('stop-opacity', 0.04);
+    areaGradient.append('stop').attr('offset', '100%').attr('stop-color', '#00e676').attr('stop-opacity', 0);
+
     const line = d3.line<typeof data[number]>()
       .x((d) => x(d.date))
       .y((d) => y(d.close))
       .curve(d3.curveMonotoneX);
 
+    const area = d3.area<typeof data[number]>()
+      .x((d) => x(d.date))
+      .y0(height)
+      .y1((d) => y(d.close))
+      .curve(d3.curveMonotoneX);
+
+    g.append('path')
+      .datum(data)
+      .attr('fill', 'url(#ct-line-area-gradient)')
+      .attr('d', area);
+
     g.append('path')
       .datum(data)
       .attr('fill', 'none')
-      .attr('stroke', 'rgba(0, 230, 118, 0.18)')
-      .attr('stroke-width', 5)
+      .attr('stroke', 'rgba(0, 230, 118, 0.15)')
+      .attr('stroke-width', 6)
       .attr('stroke-linecap', 'round')
       .attr('stroke-linejoin', 'round')
       .attr('d', line);
@@ -346,8 +362,8 @@ export default function CandlestickChart({ symbol, lockedNewsId, highlightedArti
     g.append('path')
       .datum(data)
       .attr('fill', 'none')
-      .attr('stroke', '#00e676')
-      .attr('stroke-width', 2.2)
+      .attr('stroke', '#17d96c')
+      .attr('stroke-width', 2.25)
       .attr('stroke-linecap', 'round')
       .attr('stroke-linejoin', 'round')
       .attr('d', line);
@@ -396,7 +412,7 @@ export default function CandlestickChart({ symbol, lockedNewsId, highlightedArti
           py,
           radius,
           color: getSentimentColor(p.s),
-          alpha: getParticleAlpha(p.r),
+          alpha: getParticleAlpha(p.r) * 0.68,
         });
       }
     }
@@ -422,16 +438,30 @@ export default function CandlestickChart({ symbol, lockedNewsId, highlightedArti
 
     // --- Crosshair elements ---
     const crossV = g.append('line')
-      .style('stroke', '#333')
+      .style('stroke', 'rgba(255,255,255,0.18)')
       .style('stroke-width', 0.5)
       .style('stroke-dasharray', '4,3')
       .style('display', 'none')
       .style('pointer-events', 'none');
 
     const crossH = g.append('line')
-      .style('stroke', '#333')
+      .style('stroke', 'rgba(255,255,255,0.12)')
       .style('stroke-width', 0.5)
       .style('stroke-dasharray', '4,3')
+      .style('display', 'none')
+      .style('pointer-events', 'none');
+
+    const hoverGlow = g.append('circle')
+      .attr('r', 10)
+      .attr('fill', 'rgba(23, 217, 108, 0.18)')
+      .style('display', 'none')
+      .style('pointer-events', 'none');
+
+    const hoverDot = g.append('circle')
+      .attr('r', 3.5)
+      .attr('fill', '#17d96c')
+      .attr('stroke', 'rgba(6, 12, 18, 0.95)')
+      .attr('stroke-width', 1.2)
       .style('display', 'none')
       .style('pointer-events', 'none');
 
@@ -576,6 +606,8 @@ export default function CandlestickChart({ symbol, lockedNewsId, highlightedArti
         crossV.attr('x1', cx).attr('x2', cx).attr('y1', 0).attr('y2', height).style('display', null);
         // Horizontal crosshair
         crossH.attr('x1', 0).attr('x2', width).attr('y1', my).attr('y2', my).style('display', null);
+        hoverGlow.attr('cx', cx).attr('cy', y(d.close)).style('display', null);
+        hoverDot.attr('cx', cx).attr('cy', y(d.close)).style('display', null);
 
         // Price label
         priceLabel.style('display', null)
@@ -637,6 +669,8 @@ export default function CandlestickChart({ symbol, lockedNewsId, highlightedArti
       .on('mouseleave.hover', function () {
         crossV.style('display', 'none');
         crossH.style('display', 'none');
+        hoverGlow.style('display', 'none');
+        hoverDot.style('display', 'none');
         priceLabel.style('display', 'none');
         dateLabel.style('display', 'none');
         onHover(null);

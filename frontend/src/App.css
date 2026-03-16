@@ -540,7 +540,9 @@ button:active:not(:disabled) {
   flex: 1;
   min-height: 0;
   position: relative;
-  background: var(--bg-chart);
+  background: radial-gradient(circle at 20% 18%, rgba(255,255,255,0.035), transparent 32%), linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.01) 22%, rgba(0,0,0,0) 100%), var(--bg-chart);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 
 .chart-container svg {
