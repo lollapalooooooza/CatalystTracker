@@ -1,9 +1,57 @@
 from fastapi import APIRouter, Query
 from typing import Optional
+from datetime import datetime, timedelta, timezone
+import json
 
 from backend.database import get_conn
+from backend.polygon.client import fetch_news
+from backend.pipeline.alignment import align_news_for_symbol
 
 router = APIRouter()
+
+
+def _backfill_symbol_news(symbol: str, days: int = 180) -> None:
+    end = datetime.now(timezone.utc).date().isoformat()
+    start = (datetime.now(timezone.utc).date() - timedelta(days=days)).isoformat()
+    articles = fetch_news(symbol, start, end, per_page=100, max_pages=8)
+    if not articles:
+        return
+    conn = get_conn()
+    for art in articles:
+        news_id = art.get("id")
+        if not news_id:
+            continue
+        tickers = art.get("tickers") or []
+        conn.execute(
+            """INSERT OR IGNORE INTO news_raw
+               (id, title, description, publisher, author,
+                published_utc, article_url, amp_url, tickers_json, insights_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                news_id,
+                art.get("title"),
+                art.get("description"),
+                art.get("publisher"),
+                art.get("author"),
+                art.get("published_utc"),
+                art.get("article_url"),
+                art.get("amp_url"),
+                json.dumps(tickers),
+                json.dumps(art.get("insights")) if art.get("insights") else None,
+            ),
+        )
+        for tk in tickers:
+            conn.execute(
+                "INSERT OR IGNORE INTO news_ticker (news_id, symbol) VALUES (?, ?)",
+                (news_id, tk),
+            )
+    conn.execute(
+        "UPDATE tickers SET last_news_fetch = ? WHERE symbol = ?",
+        (end, symbol),
+    )
+    conn.commit()
+    conn.close()
+    align_news_for_symbol(symbol)
 
 
 @router.get("/{symbol}")
@@ -105,6 +153,24 @@ def get_news_for_range(
         (symbol, symbol, start, end),
     ).fetchall()
     articles = [dict(r) for r in rows]
+    if not articles:
+        _backfill_symbol_news(symbol)
+        conn.close()
+        conn = get_conn()
+        rows = conn.execute(
+            """SELECT na.news_id, na.trade_date, na.published_utc,
+                      na.ret_t0, na.ret_t1, na.ret_t3, na.ret_t5, na.ret_t10,
+                      nr.title, nr.description, nr.publisher, nr.article_url, nr.image_url,
+                      l1.relevance, l1.key_discussion, l1.chinese_summary,
+                      l1.sentiment, l1.reason_growth, l1.reason_decrease
+               FROM news_aligned na
+               JOIN news_raw nr ON na.news_id = nr.id
+               LEFT JOIN layer1_results l1 ON na.news_id = l1.news_id AND l1.symbol = ?
+               WHERE na.symbol = ? AND na.trade_date BETWEEN ? AND ?
+               ORDER BY na.published_utc DESC""",
+            (symbol, symbol, start, end),
+        ).fetchall()
+        articles = [dict(r) for r in rows]
     if not articles:
         rows = conn.execute(
             """SELECT nt.news_id, substr(nr.published_utc, 1, 10) as trade_date, nr.published_utc,
