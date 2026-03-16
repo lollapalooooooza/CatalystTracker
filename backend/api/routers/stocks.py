@@ -55,6 +55,37 @@ def search(q: str = Query(..., min_length=1)):
     return results
 
 
+@router.get("/{symbol}/status")
+def get_ticker_status(symbol: str):
+    """Return data readiness for a ticker."""
+    symbol = symbol.upper()
+    conn = get_conn()
+    ohlc_count = conn.execute("SELECT COUNT(*) FROM ohlc WHERE symbol = ?", (symbol,)).fetchone()[0]
+    particle_count = conn.execute("SELECT COUNT(*) FROM news_aligned WHERE symbol = ?", (symbol,)).fetchone()[0]
+    news_count = conn.execute("SELECT COUNT(*) FROM news_ticker WHERE symbol = ?", (symbol,)).fetchone()[0]
+    conn.close()
+
+    from pathlib import Path
+    models_dir = Path(__file__).resolve().parent.parent.parent / "ml" / "models"
+    forecast_ready = (
+        (models_dir / f"{symbol}_t1.joblib").exists() and (models_dir / f"{symbol}_t5.joblib").exists()
+    ) or (
+        (models_dir / "UNIFIED_t1.joblib").exists() and (models_dir / "UNIFIED_t5.joblib").exists()
+    )
+
+    return {
+        "symbol": symbol,
+        "has_ohlc": ohlc_count > 0,
+        "has_news": news_count > 0,
+        "has_aligned_news": particle_count > 0,
+        "ohlc_count": ohlc_count,
+        "news_count": news_count,
+        "aligned_news_count": particle_count,
+        "forecast_ready": forecast_ready,
+        "ready": ohlc_count > 0,
+    }
+
+
 @router.get("/{symbol}/ohlc")
 def get_ohlc(
     symbol: str,
