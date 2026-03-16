@@ -254,8 +254,19 @@ export default function CandlestickChart({ symbol, lockedNewsId, highlightedArti
   }, [rawOhlcData, viewStart, viewCount]);
 
   useEffect(() => {
-    if (!visibleOhlcData.length) return;
-    drawChart(visibleOhlcData, rawParticles);
+    if (visibleOhlcData.length) {
+      drawChart(visibleOhlcData, rawParticles);
+      return;
+    }
+
+    const svg = d3.select(svgRef.current);
+    svg.selectAll('*').remove();
+
+    const canvas = canvasRef.current;
+    if (canvas) {
+      const ctx = canvas.getContext('2d');
+      if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
   }, [visibleOhlcData, rawParticles]);
 
   function drawChart(rawData: OHLCRow[], particles: Particle[]) {
