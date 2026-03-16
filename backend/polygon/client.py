@@ -130,17 +130,68 @@ def fetch_news(
     return all_articles
 
 
+def get_ticker_details(symbol: str) -> Optional[Dict[str, str]]:
+    """Fetch a single exact ticker from Polygon."""
+    url = f"{BASE}/v3/reference/tickers/{symbol.upper()}"
+    try:
+        resp = http_get(url, params={})
+    except Exception:
+        return None
+    result = (resp.json() or {}).get("results") or {}
+    ticker = result.get("ticker") or ""
+    if not ticker:
+        return None
+    return {
+        "symbol": ticker,
+        "name": result.get("name", ""),
+        "sector": result.get("sic_description", ""),
+    }
+
+
 def search_tickers(query: str, limit: int = 20) -> List[Dict[str, str]]:
-    """Search tickers from Polygon reference endpoint."""
+    """Search tickers from Polygon reference endpoint, prioritizing exact symbol matches."""
+    q = query.strip().upper()
+    results: List[Dict[str, str]] = []
+    seen: set[str] = set()
+
+    # Exact ticker lookup first so short symbols like BE surface correctly.
+    exact = get_ticker_details(q)
+    if exact and exact["symbol"] not in seen:
+        results.append(exact)
+        seen.add(exact["symbol"])
+
     url = f"{BASE}/v3/reference/tickers"
-    params = {"search": query, "active": "true", "limit": limit, "market": "stocks"}
+    params = {"search": query, "active": "true", "limit": max(limit, 20), "market": "stocks"}
     resp = http_get(url, params=params)
-    results = resp.json().get("results") or []
-    return [
+    raw = resp.json().get("results") or []
+
+    mapped = [
         {
             "symbol": r.get("ticker", ""),
             "name": r.get("name", ""),
             "sector": r.get("sic_description", ""),
         }
-        for r in results
+        for r in raw
+        if r.get("ticker")
     ]
+
+    def rank(item: Dict[str, str]) -> tuple:
+        sym = item["symbol"].upper()
+        name = (item.get("name") or "").upper()
+        return (
+            0 if sym == q else 1,
+            0 if sym.startswith(q) else 1,
+            0 if name.startswith(q) else 1,
+            len(sym),
+            sym,
+        )
+
+    for item in sorted(mapped, key=rank):
+        sym = item["symbol"]
+        if sym not in seen:
+            results.append(item)
+            seen.add(sym)
+        if len(results) >= limit:
+            break
+
+    return results

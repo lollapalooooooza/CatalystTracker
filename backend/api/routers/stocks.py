@@ -8,7 +8,8 @@ from datetime import datetime, timedelta, timezone
 logger = logging.getLogger(__name__)
 
 from backend.database import get_conn
-from backend.polygon.client import fetch_ohlc, fetch_news, search_tickers
+from backend.pipeline.alignment import align_news_for_symbol
+from backend.polygon.client import fetch_ohlc, fetch_news, search_tickers, get_ticker_details
 
 router = APIRouter()
 
@@ -171,5 +172,8 @@ def _fetch_ticker_data(symbol: str):
         )
         conn.commit()
         conn.close()
+
+        # Align fetched news to trading days so chart particles / news panels work.
+        align_news_for_symbol(symbol)
     except Exception:
         logger.exception("Error fetching data for %s", symbol)
