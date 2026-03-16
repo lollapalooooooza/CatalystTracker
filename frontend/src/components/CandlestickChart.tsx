@@ -94,6 +94,7 @@ export default function CandlestickChart({ symbol, lockedNewsId, highlightedArti
   const [loading, setLoading] = useState(false);
   const [rawOhlcData, setRawOhlcData] = useState<OHLCRow[]>([]);
   const [rawParticles, setRawParticles] = useState<Particle[]>([]);
+  const requestSeqRef = useRef(0);
   const [viewStart, setViewStart] = useState(0);
   const [viewCount, setViewCount] = useState<number | null>(null);
 
@@ -219,20 +220,31 @@ export default function CandlestickChart({ symbol, lockedNewsId, highlightedArti
 
   useEffect(() => {
     if (!symbol) return;
+    const reqId = ++requestSeqRef.current;
     setLoading(true);
+    setRawOhlcData([]);
+    setRawParticles([]);
+    setViewCount(null);
+    setViewStart(0);
 
     Promise.all([
       axios.get<OHLCRow[]>(`/api/stocks/${symbol}/ohlc`),
       axios.get<Particle[]>(`/api/news/${symbol}/particles`),
     ])
       .then(([ohlcRes, particlesRes]) => {
-        setRawOhlcData(ohlcRes.data);
-        setRawParticles(particlesRes.data);
-        setViewCount(ohlcRes.data.length);
+        if (reqId !== requestSeqRef.current) return;
+        setRawOhlcData(ohlcRes.data || []);
+        setRawParticles(particlesRes.data || []);
+        setViewCount((ohlcRes.data || []).length || null);
         setViewStart(0);
       })
-      .catch((err) => console.error('Chart error:', err))
-      .finally(() => setLoading(false));
+      .catch((err) => {
+        if (reqId !== requestSeqRef.current) return;
+        console.error('Chart error:', err);
+      })
+      .finally(() => {
+        if (reqId === requestSeqRef.current) setLoading(false);
+      });
   }, [symbol]);
 
   const visibleOhlcData = useMemo(() => {
