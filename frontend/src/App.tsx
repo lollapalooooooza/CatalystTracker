@@ -212,7 +212,6 @@ function App() {
           endDate={selectedRange.endDate}
           priceChange={selectedRange.priceChange}
           onClose={() => setSelectedRange(null)}
-          onAskAI={handleRangeAsk}
         />
       );
     }

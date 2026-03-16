@@ -37,7 +37,6 @@ interface Props {
   endDate: string;
   priceChange?: number;
   onClose: () => void;
-  onAskAI: (question: string) => void;
 }
 
 function pct(v: number | null) {
@@ -47,7 +46,7 @@ function pct(v: number | null) {
   return <span style={{ color, fontWeight: 600 }}>{p > 0 ? '+' : ''}{p.toFixed(2)}%</span>;
 }
 
-export default function RangeNewsPanel({ symbol, startDate, endDate, priceChange, onClose, onAskAI }: Props) {
+export default function RangeNewsPanel({ symbol, startDate, endDate, priceChange, onClose }: Props) {
   const [data, setData] = useState<RangeNewsResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [showAll, setShowAll] = useState(false);
@@ -132,13 +131,6 @@ export default function RangeNewsPanel({ symbol, startDate, endDate, priceChange
             </div>
           )}
 
-          {/* Ask AI button */}
-          <button
-            className="range-news-ai-btn"
-            onClick={() => onAskAI("What's driving the price movement?")}
-          >
-            Ask CatalystTracker
-          </button>
         </div>
       )}
     </div>
