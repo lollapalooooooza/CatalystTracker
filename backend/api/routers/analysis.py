@@ -80,15 +80,7 @@ def create_story(req: StoryRequest):
     return {"story": story_html}
 
 
-@router.post("/range")
-def range_analysis(req: RangeAnalysisRequest):
-    """Analyze price movement drivers for a date range (AI-powered, costly).
-    Kept for future use — currently the frontend uses /range-local instead."""
-    return analyze_range(req.symbol.upper(), req.start_date, req.end_date, question=req.question)
-
-
-@router.post("/range-local")
-def range_analysis_local(req: RangeAnalysisRequest):
+def _range_analysis_local_impl(req: RangeAnalysisRequest):
     """Analyze price movement drivers using local data only (no AI API call)."""
     symbol = req.symbol.upper()
     conn = get_conn()
@@ -108,11 +100,10 @@ def range_analysis_local(req: RangeAnalysisRequest):
     high_price = max(r["high"] for r in ohlc_rows)
     low_price = min(r["low"] for r in ohlc_rows)
     price_change_pct = round((close_price - open_price) / open_price * 100, 2)
-    total_volume = sum(r["volume"] for r in ohlc_rows)
 
-    # News breakdown
     news_rows = conn.execute(
-        """SELECT nr.title, l1.sentiment, l1.chinese_summary,
+        """SELECT nr.title, l1.sentiment, l1.chinese_summary, l1.key_discussion,
+                  l1.reason_growth, l1.reason_decrease,
                   na.trade_date, na.ret_t0
            FROM news_aligned na
            JOIN layer1_results l1 ON na.news_id = l1.news_id AND l1.symbol = na.symbol
@@ -129,25 +120,38 @@ def range_analysis_local(req: RangeAnalysisRequest):
     neg = [r for r in news_rows if r["sentiment"] == "negative"]
     news_count = len(news_rows)
 
-    # Build local analysis from data
     direction = "up" if price_change_pct > 0 else "down" if price_change_pct < 0 else "flat"
-    summary = (
-        f"{symbol} moved {direction} {abs(price_change_pct):.2f}% "
-        f"from {req.start_date} to {req.end_date}, "
-        f"over {len(ohlc_rows)} trading days with "
-        f"{news_count} related news ({len(pos)} positive / {len(neg)} negative)."
-    )
+
+    if req.question:
+        summary = (
+            f"Question: {req.question}  Based on local Catalyst data, {symbol} moved {direction} "
+            f"{abs(price_change_pct):.2f}% from {req.start_date} to {req.end_date} across {len(ohlc_rows)} trading days. "
+            f"The range included {news_count} relevant articles, with {len(pos)} positive and {len(neg)} negative items."
+        )
+    else:
+        summary = (
+            f"{symbol} moved {direction} {abs(price_change_pct):.2f}% "
+            f"from {req.start_date} to {req.end_date}, over {len(ohlc_rows)} trading days with "
+            f"{news_count} related news ({len(pos)} positive / {len(neg)} negative)."
+        )
 
     key_events = []
     for r in news_rows[:8]:
-        title = r["title"][:80] if r["title"] else ""
-        ret = f" (same-day {r['ret_t0']*100:+.1f}%)" if r["ret_t0"] else ""
+        title = r["title"][:100] if r["title"] else ""
+        ret = f" (same-day {r['ret_t0']*100:+.1f}%)" if r["ret_t0"] is not None else ""
         key_events.append(f"[{r['trade_date']}] {title}{ret}")
 
-    bullish = [r["chinese_summary"] or r["title"][:60] for r in pos[:5] if r["chinese_summary"] or r["title"]]
-    bearish = [r["chinese_summary"] or r["title"][:60] for r in neg[:5] if r["chinese_summary"] or r["title"]]
+    bullish = [
+        r["reason_growth"] or r["chinese_summary"] or r["key_discussion"] or (r["title"][:80] if r["title"] else "")
+        for r in pos[:6]
+        if r["reason_growth"] or r["chinese_summary"] or r["key_discussion"] or r["title"]
+    ]
+    bearish = [
+        r["reason_decrease"] or r["chinese_summary"] or r["key_discussion"] or (r["title"][:80] if r["title"] else "")
+        for r in neg[:6]
+        if r["reason_decrease"] or r["chinese_summary"] or r["key_discussion"] or r["title"]
+    ]
 
-    # Trend
     if len(ohlc_rows) >= 3:
         mid = len(ohlc_rows) // 2
         first_half = (ohlc_rows[mid]["close"] - ohlc_rows[0]["open"]) / ohlc_rows[0]["open"] * 100
@@ -156,7 +160,7 @@ def range_analysis_local(req: RangeAnalysisRequest):
             f"First half {'up' if first_half > 0 else 'down'} {abs(first_half):.1f}%, "
             f"second half {'up' if second_half > 0 else 'down'} {abs(second_half):.1f}%. "
             f"High ${high_price:.2f}, low ${low_price:.2f}, "
-            f"range {(high_price - low_price) / low_price * 100:.1f}%."
+            f"total range {(high_price - low_price) / max(low_price, 0.01) * 100:.1f}%."
         )
     else:
         trend = f"Short range, change {price_change_pct:+.2f}%."
@@ -180,7 +184,27 @@ def range_analysis_local(req: RangeAnalysisRequest):
             "bearish_factors": bearish,
             "trend_analysis": trend,
         },
+        "analysis_mode": "local",
     }
+
+
+@router.post("/range")
+def range_analysis(req: RangeAnalysisRequest):
+    """Analyze price movement drivers for a date range. Prefer AI, fall back to local analysis."""
+    try:
+        result = analyze_range(req.symbol.upper(), req.start_date, req.end_date, question=req.question)
+        if isinstance(result, dict) and not result.get("error"):
+            result["question"] = req.question
+            result["analysis_mode"] = result.get("analysis_mode") or "ai"
+            return result
+    except Exception:
+        pass
+    return _range_analysis_local_impl(req)
+
+
+@router.post("/range-local")
+def range_analysis_local(req: RangeAnalysisRequest):
+    return _range_analysis_local_impl(req)
 
 
 @router.post("/similar")
