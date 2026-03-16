@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import * as d3 from 'd3';
 import axios from 'axios';
 
@@ -90,6 +90,10 @@ export default function CandlestickChart({ symbol, lockedNewsId, highlightedArti
   const containerRef = useRef<HTMLDivElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(false);
+  const [rawOhlcData, setRawOhlcData] = useState<OHLCRow[]>([]);
+  const [rawParticles, setRawParticles] = useState<Particle[]>([]);
+  const [viewStart, setViewStart] = useState(0);
+  const [viewCount, setViewCount] = useState<number | null>(null);
 
   // Data ref for keyboard nav
   const dataRef = useRef<{ dateStr: string; date: Date; open: number; high: number; low: number; close: number; change: number }[]>([]);
@@ -108,9 +112,46 @@ export default function CandlestickChart({ symbol, lockedNewsId, highlightedArti
       const d = data[idx];
       onHover(d.dateStr, { date: d.dateStr, open: d.open, high: d.high, low: d.low, close: d.close, change: d.change });
     }
+
+    function handleViewCommand(e: Event) {
+      const command = (e as CustomEvent).detail?.command as string | undefined;
+      const total = rawOhlcData.length;
+      if (!command || total <= 1) return;
+
+      setViewCount((prevCount) => {
+        const currentCount = prevCount ?? total;
+        const minCount = Math.min(20, total);
+        const nextCount = command === 'zoom-in'
+          ? Math.max(minCount, Math.floor(currentCount * 0.7))
+          : command === 'zoom-out'
+            ? Math.min(total, Math.ceil(currentCount / 0.7))
+            : currentCount;
+
+        setViewStart((prevStart) => {
+          const maxStartCurrent = Math.max(0, total - currentCount);
+          const safeStart = Math.min(prevStart, maxStartCurrent);
+          const step = Math.max(1, Math.floor(currentCount * 0.4));
+
+          if (command === 'pan-left') return Math.max(0, safeStart - step);
+          if (command === 'pan-right') return Math.min(Math.max(0, total - currentCount), safeStart + step);
+          if (command === 'reset') return Math.max(0, total - total);
+
+          const center = safeStart + currentCount / 2;
+          const maxStartNext = Math.max(0, total - nextCount);
+          return Math.max(0, Math.min(maxStartNext, Math.round(center - nextCount / 2)));
+        });
+
+        return command === 'reset' ? total : nextCount;
+      });
+    }
+
     window.addEventListener('chart-navigate', handleNav);
-    return () => window.removeEventListener('chart-navigate', handleNav);
-  }, [onHover]);
+    window.addEventListener('chart-view-command', handleViewCommand);
+    return () => {
+      window.removeEventListener('chart-navigate', handleNav);
+      window.removeEventListener('chart-view-command', handleViewCommand);
+    };
+  }, [onHover, rawOhlcData.length]);
 
   // Refs for interaction state (avoid re-renders)
   const placedRef = useRef<PlacedParticle[]>([]);
@@ -223,11 +264,25 @@ export default function CandlestickChart({ symbol, lockedNewsId, highlightedArti
       axios.get<Particle[]>(`/api/news/${symbol}/particles`),
     ])
       .then(([ohlcRes, particlesRes]) => {
-        drawChart(ohlcRes.data, particlesRes.data);
+        setRawOhlcData(ohlcRes.data);
+        setRawParticles(particlesRes.data);
+        setViewCount(ohlcRes.data.length);
+        setViewStart(0);
       })
       .catch((err) => console.error('Chart error:', err))
       .finally(() => setLoading(false));
   }, [symbol]);
+
+  const visibleOhlcData = useMemo(() => {
+    if (!rawOhlcData.length) return [];
+    const count = viewCount ?? rawOhlcData.length;
+    return rawOhlcData.slice(viewStart, viewStart + count);
+  }, [rawOhlcData, viewStart, viewCount]);
+
+  useEffect(() => {
+    if (!visibleOhlcData.length) return;
+    drawChart(visibleOhlcData, rawParticles);
+  }, [visibleOhlcData, rawParticles]);
 
   function drawChart(rawData: OHLCRow[], particles: Particle[]) {
     const svg = d3.select(svgRef.current);

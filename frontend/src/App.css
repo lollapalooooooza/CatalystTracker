@@ -377,6 +377,48 @@ button:active:not(:disabled) {
   position: relative;
 }
 
+.chart-toolbar {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-xl);
+  background: rgba(18, 22, 32, 0.82);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: var(--shadow-md);
+}
+
+.chart-toolbar-btn {
+  min-width: 34px;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.chart-toolbar-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-subtle);
+}
+
+.chart-toolbar-btn-reset {
+  min-width: auto;
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .prediction-area {
   grid-area: prediction;
   overflow-y: auto;
