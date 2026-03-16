@@ -1,0 +1,58 @@
+{
+  "symbol": "NVDA",
+  "horizon": "t5",
+  "accuracy": 0.5263,
+  "baseline": 0.5175,
+  "precision": 0.5075,
+  "recall": 0.6182,
+  "f1": 0.5574,
+  "train_size": 452,
+  "test_size": 114,
+  "train_start": "2023-11-28",
+  "train_end": "2025-09-17",
+  "test_start": "2025-09-18",
+  "test_end": "2026-03-03",
+  "top_features": [
+    {
+      "name": "negative_ratio_10d",
+      "importance": 0.0586
+    },
+    {
+      "name": "volatility_10d",
+      "importance": 0.0508
+    },
+    {
+      "name": "ma5_vs_ma20",
+      "importance": 0.0429
+    },
+    {
+      "name": "rsi_14",
+      "importance": 0.0399
+    },
+    {
+      "name": "volume_ratio_5d",
+      "importance": 0.0392
+    },
+    {
+      "name": "negative_ratio_5d",
+      "importance": 0.039
+    },
+    {
+      "name": "positive_ratio_3d",
+      "importance": 0.038
+    },
+    {
+      "name": "positive_ratio_10d",
+      "importance": 0.0366
+    },
+    {
+      "name": "news_count_10d",
+      "importance": 0.0363
+    },
+    {
+      "name": "negative_ratio",
+      "importance": 0.0347
+    }
+  ],
+  "trained_at": "2026-03-15T22:00:57.223140"
+}
