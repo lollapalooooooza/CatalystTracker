@@ -274,7 +274,7 @@ def _fetch_ticker_data(symbol: str):
             )
         conn.commit()
 
-        # Fetch news
+        # Fetch news from all sources concurrently
         import json
 
         details = get_ticker_details(symbol) or {}
@@ -287,8 +287,9 @@ def _fetch_ticker_data(symbol: str):
             conn.execute(
                 """INSERT OR IGNORE INTO news_raw
                    (id, title, description, publisher, author,
-                    published_utc, article_url, amp_url, tickers_json, insights_json)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    published_utc, article_url, amp_url, tickers_json, insights_json,
+                    image_url, source)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     news_id,
                     art.get("title"),
@@ -300,9 +301,11 @@ def _fetch_ticker_data(symbol: str):
                     art.get("amp_url"),
                     json.dumps(tickers),
                     json.dumps(art.get("insights")) if art.get("insights") else None,
+                    art.get("image_url"),
+                    art.get("source", "polygon"),
                 ),
             )
-            for tk in tickers:
+            for tk in set(tickers) | {symbol}:
                 conn.execute(
                     "INSERT OR IGNORE INTO news_ticker (news_id, symbol) VALUES (?, ?)",
                     (news_id, tk),

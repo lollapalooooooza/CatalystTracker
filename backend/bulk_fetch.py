@@ -84,58 +84,14 @@ def fetch_and_store_ohlc(symbol: str) -> int:
     return len(rows)
 
 
-def fetch_and_store_news(symbol: str) -> int:
-    """Fetch news and store in database. Returns article count."""
-    all_articles = []
-    seen_ids = set()
-    url = f"{BASE}/v2/reference/news"
-    params = {
-        "ticker": symbol,
-        "published_utc.gte": START,
-        "published_utc.lte": END,
-        "limit": 100,
-        "order": "asc",
-    }
-    next_url = None
-    pages = 0
-
-    while True:
-        rate_limit()
-        try:
-            resp = http_get(next_url or url, params=None if next_url else params)
-        except Exception as e:
-            print(f"  News error for {symbol} (page {pages}): {e}")
-            break
-
-        data = resp.json()
-        results = data.get("results") or []
-        if not results:
-            break
-
-        for r in results:
-            rid = r.get("id")
-            if rid and rid in seen_ids:
-                continue
-            article = {
-                "id": rid,
-                "publisher": (r.get("publisher") or {}).get("name"),
-                "title": r.get("title"),
-                "author": r.get("author"),
-                "published_utc": r.get("published_utc"),
-                "amp_url": r.get("amp_url"),
-                "article_url": r.get("article_url"),
-                "tickers": r.get("tickers"),
-                "description": r.get("description"),
-                "insights": r.get("insights"),
-            }
-            all_articles.append(article)
-            if rid:
-                seen_ids.add(rid)
-
-        next_url = data.get("next_url")
-        pages += 1
-        if not next_url:
-            break
+def fetch_and_store_news(symbol: str, company_name: str = "") -> int:
+    """Fetch news from all sources concurrently and store in database. Returns article count."""
+    # Use the multi-source fetch_news which queries Polygon, Finnhub, and Google News concurrently
+    all_articles = fetch_news(
+        symbol, START, END,
+        per_page=100, max_pages=8,
+        company_name=company_name or None,
+    )
 
     if not all_articles:
         return 0
@@ -149,15 +105,18 @@ def fetch_and_store_news(symbol: str) -> int:
         conn.execute(
             """INSERT OR IGNORE INTO news_raw
                (id, title, description, publisher, author,
-                published_utc, article_url, amp_url, tickers_json, insights_json)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                published_utc, article_url, amp_url, tickers_json, insights_json,
+                image_url, source)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (news_id, art.get("title"), art.get("description"),
              art.get("publisher"), art.get("author"), art.get("published_utc"),
              art.get("article_url"), art.get("amp_url"),
              json.dumps(tickers),
-             json.dumps(art.get("insights")) if art.get("insights") else None),
+             json.dumps(art.get("insights")) if art.get("insights") else None,
+             art.get("image_url"),
+             art.get("source", "polygon")),
         )
-        for tk in tickers:
+        for tk in set(tickers) | {symbol}:
             conn.execute(
                 "INSERT OR IGNORE INTO news_ticker (news_id, symbol) VALUES (?, ?)",
                 (news_id, tk),
@@ -200,17 +159,18 @@ def main():
         ).fetchone()
         conn.close()
 
-        if not name or not name["name"]:
-            company_name = fetch_ticker_name(symbol)
-            if company_name:
+        company_name_str = (name["name"] if name and name["name"] else "")
+        if not company_name_str:
+            company_name_str = fetch_ticker_name(symbol)
+            if company_name_str:
                 conn = get_conn()
                 conn.execute(
                     "UPDATE tickers SET name = ? WHERE symbol = ?",
-                    (company_name, symbol),
+                    (company_name_str, symbol),
                 )
                 conn.commit()
                 conn.close()
-                print(f"  Name: {company_name}")
+                print(f"  Name: {company_name_str}")
 
         # Fetch OHLC
         ohlc_count = fetch_and_store_ohlc(symbol)
@@ -222,9 +182,9 @@ def main():
             errors.append(symbol)
             continue
 
-        # Fetch news
-        news_count = fetch_and_store_news(symbol)
-        print(f"  News: {news_count} articles")
+        # Fetch news from all sources concurrently
+        news_count = fetch_and_store_news(symbol, company_name=company_name_str)
+        print(f"  News: {news_count} articles (multi-source)")
         total_news += news_count
 
         # Run alignment + layer 0

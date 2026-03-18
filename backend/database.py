@@ -33,7 +33,9 @@ CREATE TABLE IF NOT EXISTS news_raw (
     article_url   TEXT,
     amp_url       TEXT,
     tickers_json  TEXT,
-    insights_json TEXT
+    insights_json TEXT,
+    image_url     TEXT,
+    source        TEXT DEFAULT 'polygon'
 );
 
 CREATE TABLE IF NOT EXISTS news_ticker (
@@ -116,9 +118,21 @@ def get_conn() -> sqlite3.Connection:
     return conn
 
 
+def _migrate(conn: sqlite3.Connection):
+    """Add columns that may be missing from older databases."""
+    cursor = conn.execute("PRAGMA table_info(news_raw)")
+    cols = {row[1] for row in cursor.fetchall()}
+    if "image_url" not in cols:
+        conn.execute("ALTER TABLE news_raw ADD COLUMN image_url TEXT")
+    if "source" not in cols:
+        conn.execute("ALTER TABLE news_raw ADD COLUMN source TEXT DEFAULT 'polygon'")
+    conn.commit()
+
+
 def init_db():
     conn = get_conn()
     conn.executescript(SCHEMA)
+    _migrate(conn)
     conn.close()
     print(f"Database initialized at {settings.database_path}")
 

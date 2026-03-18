@@ -1,7 +1,21 @@
+"""Multi-source news & OHLC fetching engine.
+
+Primary: Polygon.io
+Secondary: Finnhub (free tier, optional key)
+Tertiary: Google News RSS (no key needed, broad coverage)
+
+All news sources are fetched concurrently via ThreadPoolExecutor
+for fast response times, especially for less famous tickers.
+"""
+
 import time
 import json
 import hashlib
+import logging
+import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
+from difflib import SequenceMatcher
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote_plus
 from xml.etree import ElementTree as ET
@@ -10,8 +24,11 @@ import requests
 
 from backend.config import settings
 
+logger = logging.getLogger(__name__)
+
 BASE = "https://api.polygon.io"
 
+# ─── HTTP helpers ────────────────────────────────────────────────────────────
 
 def _headers() -> Dict[str, str]:
     return {"Authorization": f"Bearer {settings.polygon_api_key}"}
@@ -53,6 +70,8 @@ def http_get(
         return resp
     raise RuntimeError("Unreachable")
 
+
+# ─── OHLC fetching ──────────────────────────────────────────────────────────
 
 def _fetch_ohlc_yahoo(ticker: str, start: str, end: str) -> List[Dict[str, Any]]:
     """Fallback OHLC fetch via Yahoo Finance chart API."""
@@ -186,7 +205,149 @@ def fetch_ohlc(ticker: str, start: str, end: str) -> List[Dict[str, Any]]:
     return _fetch_ohlc_stooq(ticker, start, end)
 
 
-def _fetch_google_news_rss(query: str, ticker: str, max_items: int = 40) -> List[Dict[str, Any]]:
+# ─── NEWS SOURCE 1: Polygon.io ──────────────────────────────────────────────
+
+def _fetch_polygon_news(
+    ticker: str,
+    start: str,
+    end: str,
+    per_page: int = 50,
+    page_sleep: float = 1.2,
+    max_pages: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    """Fetch news from Polygon.io (primary source)."""
+    if not settings.polygon_api_key:
+        return []
+    url = f"{BASE}/v2/reference/news"
+    params = {
+        "ticker": ticker,
+        "published_utc.gte": start,
+        "published_utc.lte": end,
+        "limit": per_page,
+        "order": "asc",
+    }
+    all_articles: List[Dict[str, Any]] = []
+    seen_ids: set = set()
+    pages = 0
+    next_url: Optional[str] = None
+
+    while True:
+        try:
+            resp = http_get(next_url or url, params=None if next_url else params)
+        except Exception as e:
+            logger.warning("Polygon news fetch failed for %s: %s", ticker, e)
+            break
+        data = resp.json()
+        for r in data.get("results", []) or []:
+            rid = r.get("id")
+            if rid and rid in seen_ids:
+                continue
+            article = {
+                "id": rid,
+                "publisher": (r.get("publisher") or {}).get("name"),
+                "title": r.get("title"),
+                "author": r.get("author"),
+                "published_utc": r.get("published_utc"),
+                "amp_url": r.get("amp_url"),
+                "article_url": r.get("article_url"),
+                "tickers": r.get("tickers"),
+                "description": r.get("description"),
+                "insights": r.get("insights"),
+                "image_url": r.get("image_url"),
+                "source": "polygon",
+            }
+            all_articles.append(article)
+            if rid:
+                seen_ids.add(rid)
+
+        next_url = data.get("next_url")
+        pages += 1
+        if max_pages is not None and pages >= max_pages:
+            break
+        if not next_url:
+            break
+        time.sleep(page_sleep)
+
+    return all_articles
+
+
+# ─── NEWS SOURCE 2: Finnhub ─────────────────────────────────────────────────
+
+def _fetch_finnhub_news(
+    ticker: str,
+    start: str,
+    end: str,
+) -> List[Dict[str, Any]]:
+    """Fetch company news from Finnhub.io (free tier: 60 calls/min).
+
+    Returns articles in the same normalized format as other sources.
+    Gracefully returns [] if no API key configured.
+    """
+    api_key = settings.finnhub_api_key
+    if not api_key:
+        return []
+
+    url = "https://finnhub.io/api/v1/company-news"
+    params = {
+        "symbol": ticker.upper(),
+        "from": start,
+        "to": end,
+        "token": api_key,
+    }
+
+    articles: List[Dict[str, Any]] = []
+    try:
+        resp = requests.get(url, params=params, timeout=20)
+        if resp.status_code == 429:
+            logger.warning("Finnhub rate limit hit for %s", ticker)
+            return []
+        resp.raise_for_status()
+        data = resp.json()
+        if not isinstance(data, list):
+            return []
+    except Exception as e:
+        logger.warning("Finnhub fetch failed for %s: %s", ticker, e)
+        return []
+
+    for item in data:
+        headline = item.get("headline") or ""
+        summary = item.get("summary") or ""
+        url_val = item.get("url") or ""
+        source = item.get("source") or "Finnhub"
+        ts = item.get("datetime")
+        image = item.get("image") or None
+
+        if not headline:
+            continue
+
+        try:
+            published = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat() if ts else None
+        except Exception:
+            published = None
+
+        aid = "fh_" + hashlib.sha1(f"{headline}|{url_val}".encode("utf-8")).hexdigest()[:24]
+        articles.append({
+            "id": aid,
+            "publisher": source,
+            "title": headline,
+            "author": None,
+            "published_utc": published,
+            "amp_url": None,
+            "article_url": url_val,
+            "tickers": [ticker.upper()],
+            "description": summary,
+            "insights": None,
+            "image_url": image,
+            "source": "finnhub",
+        })
+
+    return articles
+
+
+# ─── NEWS SOURCE 3: Google News RSS ─────────────────────────────────────────
+
+def _fetch_google_news_rss(query: str, ticker: str, max_items: int = 50) -> List[Dict[str, Any]]:
+    """Fetch news from Google News RSS feed."""
     url = f"https://news.google.com/rss/search?q={quote_plus(query)}&hl=en-US&gl=US&ceid=US:en"
     try:
         resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
@@ -218,39 +379,167 @@ def _fetch_google_news_rss(query: str, ticker: str, max_items: int = 40) -> List
             'tickers': [ticker],
             'description': desc,
             'insights': None,
+            'image_url': None,
+            'source': 'google_rss',
         })
     return articles
 
 
-def _fetch_news_fallbacks(ticker: str, company_name: Optional[str], start: str, end: str) -> List[Dict[str, Any]]:
+def _build_google_queries(ticker: str, company_name: Optional[str] = None) -> List[str]:
+    """Build a broad set of Google News search queries for better coverage.
+
+    Uses multiple query strategies to maximize coverage for less famous tickers:
+    - Exact ticker symbol + financial sites
+    - Ticker + generic stock terms
+    - Company name variations (if available)
+    - Ticker-only search (catches more general mentions)
+    """
     queries = [
-        f'"{ticker}" stock site:finance.yahoo.com OR site:seekingalpha.com OR site:news.google.com',
+        # Strategy 1: Targeted financial sites
+        f'"{ticker}" stock site:finance.yahoo.com OR site:seekingalpha.com OR site:reuters.com',
+        # Strategy 2: Broader stock news
         f'"{ticker}" stock market news',
+        # Strategy 3: Ticker-only for broader coverage
+        f'"{ticker}" stock price',
+        # Strategy 4: Business news sites
+        f'"{ticker}" site:cnbc.com OR site:bloomberg.com OR site:marketwatch.com OR site:benzinga.com',
     ]
+
     if company_name:
-        queries.extend([
-            f'"{company_name}" stock site:finance.yahoo.com OR site:seekingalpha.com OR site:news.google.com',
-            f'"{company_name}" "{ticker}" stock',
-        ])
+        # Strip common suffixes for cleaner searches
+        clean_name = re.sub(
+            r'\s*(Inc\.?|Corp\.?|Ltd\.?|LLC|PLC|Group|Holdings?|Co\.?|Corporation|Limited|Technologies|Technology)\s*$',
+            '',
+            company_name,
+            flags=re.IGNORECASE,
+        ).strip()
+        if clean_name and clean_name.upper() != ticker.upper():
+            queries.extend([
+                # Strategy 5: Company name + financial sites
+                f'"{clean_name}" stock site:finance.yahoo.com OR site:seekingalpha.com OR site:reuters.com',
+                # Strategy 6: Company name + ticker combo
+                f'"{clean_name}" "{ticker}" stock',
+                # Strategy 7: Company name alone (for less famous tickers)
+                f'"{clean_name}" stock market news',
+                # Strategy 8: Company name + business news
+                f'"{clean_name}" site:cnbc.com OR site:bloomberg.com OR site:benzinga.com',
+            ])
+
+    return queries
+
+
+def _fetch_google_news_all(
+    ticker: str,
+    company_name: Optional[str],
+    start: str,
+    end: str,
+) -> List[Dict[str, Any]]:
+    """Fetch from Google News RSS using multiple query strategies concurrently."""
+    queries = _build_google_queries(ticker, company_name)
     start_dt = datetime.fromisoformat(start).date()
     end_dt = datetime.fromisoformat(end).date()
+
     merged: List[Dict[str, Any]] = []
     seen: set[str] = set()
-    for q in queries:
-        for art in _fetch_google_news_rss(q, ticker):
-            aid = art.get('id')
-            if not aid or aid in seen:
-                continue
+
+    # Fetch all queries concurrently (they're independent HTTP calls)
+    with ThreadPoolExecutor(max_workers=min(len(queries), 6)) as pool:
+        futures = {
+            pool.submit(_fetch_google_news_rss, q, ticker, 50): q
+            for q in queries
+        }
+        for future in as_completed(futures):
             try:
-                d = datetime.fromisoformat(art['published_utc'].replace('Z', '+00:00')).date()
-                if d < start_dt or d > end_dt:
-                    continue
+                results = future.result()
             except Exception:
-                pass
-            seen.add(aid)
-            merged.append(art)
+                continue
+            for art in results:
+                aid = art.get("id")
+                if not aid or aid in seen:
+                    continue
+                # Date filter
+                try:
+                    d = datetime.fromisoformat(
+                        art["published_utc"].replace("Z", "+00:00")
+                    ).date()
+                    if d < start_dt or d > end_dt:
+                        continue
+                except Exception:
+                    pass  # Keep articles with unparseable dates
+                seen.add(aid)
+                merged.append(art)
+
     return merged
 
+
+# ─── Cross-source deduplication ──────────────────────────────────────────────
+
+def _normalize_title(title: str) -> str:
+    """Normalize a title for comparison: lowercase, strip punctuation/whitespace."""
+    t = (title or "").lower().strip()
+    t = re.sub(r"[^\w\s]", "", t)  # Remove punctuation
+    t = re.sub(r"\s+", " ", t)     # Collapse whitespace
+    return t
+
+
+def _deduplicate_articles(articles: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Remove duplicate articles across sources using title similarity.
+
+    Uses SequenceMatcher for fuzzy matching — titles with >80% similarity
+    are considered duplicates. Keeps the version with the longer description.
+    """
+    if not articles:
+        return []
+
+    # First pass: exact ID dedup
+    seen_ids: set[str] = set()
+    unique_by_id: List[Dict[str, Any]] = []
+    for art in articles:
+        aid = art.get("id") or ""
+        if aid and aid in seen_ids:
+            continue
+        if aid:
+            seen_ids.add(aid)
+        unique_by_id.append(art)
+
+    # Second pass: title similarity dedup
+    result: List[Dict[str, Any]] = []
+    normalized_titles: List[str] = []
+
+    for art in unique_by_id:
+        norm = _normalize_title(art.get("title") or "")
+        if not norm or len(norm) < 10:
+            result.append(art)
+            normalized_titles.append("")
+            continue
+
+        is_dup = False
+        for i, existing_norm in enumerate(normalized_titles):
+            if not existing_norm:
+                continue
+            # Quick length check first (avoid expensive SequenceMatcher for obviously different titles)
+            len_ratio = len(norm) / len(existing_norm) if existing_norm else 0
+            if len_ratio < 0.5 or len_ratio > 2.0:
+                continue
+            ratio = SequenceMatcher(None, norm, existing_norm).ratio()
+            if ratio > 0.80:
+                # Keep the one with longer description
+                existing_desc = len((result[i].get("description") or ""))
+                new_desc = len((art.get("description") or ""))
+                if new_desc > existing_desc:
+                    result[i] = art
+                    normalized_titles[i] = norm
+                is_dup = True
+                break
+
+        if not is_dup:
+            result.append(art)
+            normalized_titles.append(norm)
+
+    return result
+
+
+# ─── Main fetch_news: concurrent multi-source ───────────────────────────────
 
 def fetch_news(
     ticker: str,
@@ -261,62 +550,70 @@ def fetch_news(
     max_pages: Optional[int] = None,
     company_name: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """Fetch all news for a ticker from Polygon, with pagination and source fallbacks."""
-    url = f"{BASE}/v2/reference/news"
-    params = {
-        "ticker": ticker,
-        "published_utc.gte": start,
-        "published_utc.lte": end,
-        "limit": per_page,
-        "order": "asc",
-    }
+    """Fetch news from ALL available sources concurrently, then deduplicate.
+
+    Sources:
+      1. Polygon.io (primary, if API key present)
+      2. Finnhub (secondary, if API key present)
+      3. Google News RSS (always available, no key needed)
+
+    All sources are queried in parallel via ThreadPoolExecutor.
+    Results are merged and deduplicated by title similarity.
+    """
     all_articles: List[Dict[str, Any]] = []
-    seen_ids: set = set()
-    pages = 0
-    next_url: Optional[str] = None
 
-    while True:
-        resp = http_get(next_url or url, params=None if next_url else params)
-        data = resp.json()
-        for r in data.get("results", []) or []:
-            rid = r.get("id")
-            if rid and rid in seen_ids:
-                continue
-            article = {
-                "id": rid,
-                "publisher": (r.get("publisher") or {}).get("name"),
-                "title": r.get("title"),
-                "author": r.get("author"),
-                "published_utc": r.get("published_utc"),
-                "amp_url": r.get("amp_url"),
-                "article_url": r.get("article_url"),
-                "tickers": r.get("tickers"),
-                "description": r.get("description"),
-                "insights": r.get("insights"),
-            }
-            all_articles.append(article)
-            if rid:
-                seen_ids.add(rid)
+    # Launch all sources concurrently
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        futures = {}
 
-        next_url = data.get("next_url")
-        pages += 1
-        if max_pages is not None and pages >= max_pages:
-            break
-        if not next_url:
-            break
-        time.sleep(page_sleep)
+        # Source 1: Polygon
+        if settings.polygon_api_key:
+            futures[pool.submit(
+                _fetch_polygon_news, ticker, start, end, per_page, page_sleep, max_pages
+            )] = "polygon"
 
-    if len(all_articles) < 25:
-        seen = {a.get('id') for a in all_articles if a.get('id')}
-        for art in _fetch_news_fallbacks(ticker, company_name, start, end):
-            if art.get('id') in seen:
-                continue
-            all_articles.append(art)
-            if art.get('id'):
-                seen.add(art['id'])
+        # Source 2: Finnhub
+        if settings.finnhub_api_key:
+            futures[pool.submit(
+                _fetch_finnhub_news, ticker, start, end
+            )] = "finnhub"
 
-    return all_articles
+        # Source 3: Google News RSS (always available)
+        futures[pool.submit(
+            _fetch_google_news_all, ticker, company_name, start, end
+        )] = "google_rss"
 
+        for future in as_completed(futures):
+            source_name = futures[future]
+            try:
+                result = future.result()
+                logger.info(
+                    "Source %s returned %d articles for %s",
+                    source_name, len(result), ticker,
+                )
+                all_articles.extend(result)
+            except Exception as e:
+                logger.warning(
+                    "Source %s failed for %s: %s", source_name, ticker, e
+                )
+
+    # Deduplicate across sources
+    deduped = _deduplicate_articles(all_articles)
+    logger.info(
+        "fetch_news(%s): %d raw → %d after dedup",
+        ticker, len(all_articles), len(deduped),
+    )
+    return deduped
+
+
+# ─── Legacy compatibility aliases ────────────────────────────────────────────
+
+def _fetch_news_fallbacks(ticker: str, company_name: Optional[str], start: str, end: str) -> List[Dict[str, Any]]:
+    """Legacy fallback function — now delegates to _fetch_google_news_all."""
+    return _fetch_google_news_all(ticker, company_name, start, end)
+
+
+# ─── Ticker lookup ───────────────────────────────────────────────────────────
 
 def get_ticker_details(symbol: str) -> Optional[Dict[str, str]]:
     """Fetch a single exact ticker from Polygon."""
